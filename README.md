@@ -89,6 +89,17 @@ Published web layers are reprojected to EPSG:3857.
 
 ---
 
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| **[docs/DATA_ACQUISITION.md](docs/DATA_ACQUISITION.md)** | How to obtain every source S01–S23 by hand — portal, endpoint, steps, licence, CRS |
+| **[docs/REPRODUCE.md](docs/REPRODUCE.md)** | End-to-end reproduction from a clean clone |
+| [docs/PLAN.md](docs/PLAN.md) | Milestone tracker with exit criteria and dependency gates |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Append-only decision log |
+| [docs/recon/RECON_findings.md](docs/recon/RECON_findings.md) | What the sources actually contain, verified live |
+| [docs/tutorial/](docs/tutorial/) | Dual-track lessons — automated *and* manual, with concepts |
+
 ## Quickstart
 
 ### Requirements
