@@ -256,3 +256,129 @@ tool, so `tools/setup_pro_project.py` writes an empty `.atbx` directly (it is a 
   doing **in addition** once layouts exist — §7.1 already calls for `layouts/LI_Template.pagx`.
   It is not a substitute, because no export round-trips a whole project.
 - *Git LFS.* Overkill at ~9 KB. Revisit only if the project grows large enough to bloat clones.
+
+---
+
+## D-008 · C10 land-cost data path
+
+- **Date raised:** 2026-09-19
+- **Status:** `OPEN` — recommendation below, awaiting sign-off
+- **Scope ref:** §5.3 C10, §3 S01, §14 (parcel-data risk)
+- **Evidence:** `docs/recon/RECON_findings.md` §1
+
+**Question.** Do appraised values ship with parcel geometry, or do they live in a separate
+appraisal-district tabular roll that must be joined — which would add a pipeline step that the
+design does not currently have?
+
+**Finding — they ship with the geometry, at least in Tarrant.** Verified against the live
+`TADParcels` service over all 758,633 parcels:
+
+| | |
+|---|---:|
+| `LAND_VALUE > 0` | 693,826 (91.5%) |
+| `LAND_VALUE = 0` | 64,806 (8.5%) |
+| `LAND_VALUE IS NULL` | 1 |
+| `TOTAL_VALU > 0` | 742,055 (97.8%) |
+| `LAND_ACRES IS NULL` | 23 |
+
+**No CAD roll join is required.** The feared design gap does not exist for Tarrant. `LAND_VALUE`
+and `LAND_ACRES` together give `land_val_per_acre` directly, which is all C10 needs.
+
+**Recommendation.**
+
+1. **Source C10 from the parcel layer's own value fields.** Add no join step.
+2. **Exclude `LAND_VALUE = 0` parcels from C10 normalization** and record them as
+   `screen_status = Review` rather than scoring them. Those 8.5% are tax-exempt, right-of-way,
+   and government parcels. Treated as zero they would normalize to the *best possible* land-cost
+   score and dominate the ranking with land that is not for sale.
+3. **Prefer the CAD service per county over the TxGIO StratMap mosaic**, and write an explicit
+   `field_map` per county in `config/sources.yaml`. The guessed `_default` map is wrong for
+   Tarrant and there is no reason to expect a shared schema across 11 independent districts.
+4. **Keep the CAD-published `LAND_ACRES` as `acres_published`**, separate from the
+   geometry-derived `acres`, and add a QA/QC check on the discrepancy. Deed acreage and
+   digitised geometry routinely disagree, and C07 and the 80-acre hard filter both depend on
+   which one is used. Recommend screening on the **published** value, since that is what a
+   broker or appraiser would quote, and reporting the geometry value alongside it.
+5. **Treat this as confirmed for Tarrant only.** Items 1–4 are contingent on the other ten CADs
+   behaving similarly; the recon plan already covers repeating §1 for each.
+
+**Alternatives considered.** Join a separate appraisal roll anyway for richer attributes —
+rejected as unnecessary work given the values are already present, and it would introduce 11
+more schema-mapping surfaces. Use `TOTAL_VALU` instead of `LAND_VALUE` — rejected: total value
+includes improvements, and this study is buying land, not buildings.
+
+---
+
+## D-009 · Zoning strategy
+
+- **Date raised:** 2026-09-19
+- **Status:** `OPEN` — recommendation below, awaiting sign-off
+- **Scope ref:** §3 S02, §5.1 step 2, §14 (parcel-data risk)
+- **Evidence:** `docs/recon/RECON_findings.md` §1.5, §2
+
+**Question.** Zoning is a **hard filter** in §5.1. How is it sourced when no regional layer
+exists, and what happens to parcels where zoning cannot be determined?
+
+**Findings.**
+
+1. **TAD parcels carry no zoning and no land-use field.** Verified: a field scan for `zon*`,
+   `land_use*`, `luc*` over the 56-field schema returns nothing. `Parcels.zoning_class`,
+   `zoning_code`, `land_use_code` and `land_use_class` have **no source in the parcel layer**,
+   and since `land_use_class` drives the `Parcels` subtypes, the subtype assignment has no input
+   either.
+2. **Where zoning exists it is not one layer.** Dallas publishes **20 layers**. Base zoning is
+   3,827 features, but Planned Development parcels carry only a `PD_NUM` there and their real
+   permitted use sits in `PD_Subdistricts` (1,280 features). Large industrial tracts — precisely
+   this study's targets — are commonly inside PDs, so reading base zoning alone misclassifies
+   them.
+3. **Coverage is patchy and the inventory is unreliable.** A Hub search across 30 jurisdictions
+   produced more false positives than hits: Arlington **WA**, Grand Blanc **MI**, Lancaster
+   **OH**, Decatur **GA**, Greenville **NC**, Mesquite **NV**. Only Dallas was confirmed at the
+   service level.
+4. **No authoritative Fort Worth zoning service was found** — the largest city in the study area
+   and the one the client named.
+5. **Unincorporated county land has no zoning at all, by law.** Texas counties lack general
+   zoning authority. For those parcels this is not missing data; there is nothing to find. And
+   unincorporated highway-adjacent land is exactly where cheap 80-acre tracts are.
+
+**Recommendation — demote zoning from a hard filter to a scored, tiered attribute.**
+
+Keeping zoning as a pass/fail gate means silently discarding every parcel in a
+non-publishing city and every unincorporated parcel, which is both a large share of the
+candidate universe and biased toward the cheap greenfield land the client would most plausibly
+buy. That is a worse error than admitting uncertainty.
+
+1. **Add a `zoning_confidence` domain** — `Confirmed` / `Inferred` / `Unzoned` / `Unknown`:
+   - `Confirmed` — a spatial join to an authoritative municipal layer returned an industrial class.
+   - `Inferred` — no zoning layer, but NLCD plus parcel context supports an industrial reading.
+   - `Unzoned` — parcel is outside any incorporated place. Legally correct, not a gap.
+   - `Unknown` — inside a city that publishes nothing usable.
+2. **Hard-fail only on `Confirmed` *non*-industrial zoning.** A parcel confirmed residential is
+   genuinely out. A parcel whose zoning is unknown is not.
+3. **Carry the other three into scoring** with `screen_status = Review`, and add a small
+   entitlement-risk weight so `Confirmed` industrial outranks `Unzoned` and `Unknown` rather
+   than being indistinguishable from them.
+4. **Union base zoning with PD/CD/PDS subdistricts** on ingest, preferring the subdistrict where
+   one applies. Record per city which layers were combined.
+5. **Report coverage honestly.** A table in the methodology report giving, per county, how many
+   candidates fell into each confidence tier. This is a genuine finding about DFW data
+   infrastructure, and stating it is more credible than implying complete coverage.
+6. **Prioritise Fort Worth.** If an authoritative layer exists behind the city's open-data
+   portal rather than Hub search, it is worth real effort — the client named Fort Worth, and a
+   gap there is the most visible weakness in the study.
+
+**Cost of this change.** One new domain, one new field, a change to the screening rule, and a
+weight adjustment. `config/screening.yaml` already has `zoning.fallback_to_land_use` and
+`fallback_screen_status: Review`, so the scaffolding is largely in place.
+
+**Alternatives considered.**
+
+- *Keep zoning as a hard filter, drop unknowns.* Simple, defensible on paper, and quietly
+  discards most unincorporated greenfield land — the likeliest real-world DC sites. Rejected.
+- *Keep it hard, but pass unknowns.* Inverts the bias: entitlement risk becomes invisible and
+  a residential-in-practice tract can reach the shortlist. Rejected.
+- *Hand-digitise zoning for non-publishing cities.* Most accurate, wholly impractical at
+  ~180 incorporated places in eight weeks part-time. Rejected.
+- *Use NCTCOG regional land use (S22) as the zoning proxy.* Worth testing as the `Inferred`
+  tier's evidence base — it is regional and consistent, though land use is not zoning and
+  cannot speak to entitlement. Recommend evaluating it when implementing tier 2.
