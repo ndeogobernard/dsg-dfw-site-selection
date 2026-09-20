@@ -1,0 +1,162 @@
+# =============================================================================
+# Scoring criteria C01-C11 (scope Section 5.3) and normalization (Section 5.4).
+# Loaded into the CriteriaDefinitions table by BuildGeodatabaseSchema and used
+# by ComputeCriteriaScores.
+# =============================================================================
+
+normalization:
+  method: winsorize_minmax
+  winsorize_lower_pct: 5
+  winsorize_upper_pct: 95
+  scale_min: 0
+  scale_max: 100
+  # Benefit: s = 100 * (x - min) / (max - min)
+  # Cost:    s = 100 * (max - x) / (max - min)
+  # Degenerate case (max == min): all Pass candidates receive 50.
+  degenerate_value: 50
+  population: pass_candidates_only
+
+criteria:
+
+  - id: C01
+    name: Warehouse and transport labor pool
+    description: >-
+      Sum of ACS workers in transportation and material-moving occupations
+      (C24010) across block groups whose population-weighted centroid falls
+      inside the candidate's 30-minute Driving service area.
+    unit: workers
+    direction: Benefit
+    sources: [S08]
+    depends_on: [ServiceAreas_Driving, BlockGroups_Centroids, BlockGroups_ACS]
+    service_area_break_min: 30
+    field_raw: c01_raw
+    field_scaled: c01_s
+
+  - id: C02
+    name: Labor availability
+    description: >-
+      Weighted unemployment rate across the same 30-minute labor shed,
+      computed as sum(unemployed) / sum(labor_force) rather than a mean of
+      block-group rates, so large block groups are not under-weighted.
+    unit: rate
+    direction: Benefit
+    sources: [S08]
+    depends_on: [ServiceAreas_Driving, BlockGroups_Centroids, BlockGroups_ACS]
+    service_area_break_min: 30
+    field_raw: c02_raw
+    field_scaled: c02_s
+
+  - id: C03
+    name: Proven commutability
+    description: >-
+      LODES origin-destination volume: sum of s000 for workers whose workplace
+      falls in the candidate's tract union its adjacent tracts. Demonstrates
+      that workers already commute to this location, not merely that they
+      live nearby.
+    unit: jobs
+    direction: Benefit
+    sources: [S10]
+    depends_on: [LODES_OD_Flows, Tracts, Tracts_LODES_WAC]
+    fallback: jobs_cns08_in_30min_shed
+    field_raw: c03_raw
+    field_scaled: c03_s
+
+  - id: C04
+    name: Highway access
+    description: Truck minutes from the candidate centroid to the nearest interstate interchange.
+    unit: minutes
+    direction: Cost
+    sources: [S03, S05]
+    depends_on: [OD_Cand_to_Interchange]
+    field_raw: c04_raw
+    field_scaled: c04_s
+
+  - id: C05
+    name: Store-network access
+    description: >-
+      Store-weighted mean truck minutes from the candidate to every store in the
+      served set. Equal weight per store by default.
+    unit: minutes
+    direction: Cost
+    sources: [S03, S21]
+    depends_on: [OD_Cand_to_Stores, StoreServiceSet]
+    store_weighting: equal        # [DECISION] alternative: weight by banner
+    field_raw: c05_raw
+    field_scaled: c05_s
+
+  - id: C06
+    name: Intermodal access
+    description: Truck minutes to the nearest intermodal freight terminal.
+    unit: minutes
+    direction: Cost
+    sources: [S06]
+    depends_on: [OD_Cand_to_Intermodal]
+    field_raw: c06_raw
+    field_scaled: c06_s
+
+  - id: C07
+    name: Site size
+    description: >-
+      Candidate acreage, capped at 150. The requirement is ~90 acres; beyond
+      roughly 150 acres additional land stops conferring advantage and would
+      otherwise let very large rural parcels dominate the criterion.
+    unit: acres
+    direction: Benefit
+    sources: [S01]
+    cap_max: 150
+    field_raw: c07_raw
+    field_scaled: c07_s
+
+  - id: C08
+    name: Terrain
+    description: Mean percent slope across the candidate polygon (zonal statistics on Slope_pct).
+    unit: percent
+    direction: Cost
+    sources: [S16]
+    field_raw: c08_raw
+    field_scaled: c08_s
+
+  - id: C09
+    name: Flood risk
+    description: Percent of the candidate polygon within a FEMA Special Flood Hazard Area (A/AE/AH/AO).
+    unit: percent
+    direction: Cost
+    sources: [S13]
+    field_raw: c09_raw
+    field_scaled: c09_s
+
+  - id: C10
+    name: Land cost
+    description: >-
+      Appraised land value per acre, area-weighted across member parcels for
+      assemblages. A proxy for acquisition cost, not a market valuation.
+    unit: USD per acre
+    direction: Cost
+    sources: [S01]
+    field_raw: c10_raw
+    field_scaled: c10_s
+
+  - id: C11
+    name: Industrial cluster
+    description: >-
+      Sum of industrial building footprint area within 3 miles of the candidate
+      centroid. A proxy for established logistics agglomeration - labor
+      familiarity, supplier presence, and demonstrated municipal receptiveness.
+    unit: square feet
+    direction: Benefit
+    sources: [S18]
+    buffer_miles: 3
+    field_raw: c11_raw
+    field_scaled: c11_s
+
+# Optional C12 - only if Lightcast trial access is obtained (scope 5.3).
+# Enabling it requires rebalancing all three weight scenarios and documenting
+# the change in the methodology report.
+optional_criteria:
+  - id: C12
+    name: Lightcast staffing-pattern occupations
+    description: Lightcast staffing-pattern count of relevant occupations within the 30-minute shed.
+    unit: workers
+    direction: Benefit
+    sources: [S23]
+    enabled: false

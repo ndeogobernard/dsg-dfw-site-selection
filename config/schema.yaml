@@ -1,0 +1,820 @@
+# =============================================================================
+# DFW_DSG_SiteSelection.gdb - machine-readable schema definition
+# Implements Section 4 of the project scope (v1.1).
+# Consumed by: toolbox/LocationIntelligence.pyt -> BuildGeodatabaseSchema
+#
+# Field types: TEXT DOUBLE FLOAT LONG SHORT DATE BLOB GUID
+# Geometry:    POLYGON POLYLINE POINT MULTIPOINT
+# =============================================================================
+
+meta:
+  gdb_name: DFW_DSG_SiteSelection.gdb
+  schema_version: "1.0"
+  scope_version: "1.1"
+  crs: 6584                 # NAD83(2011) StatePlane TX N Central FIPS 4202 (ftUS) - VERIFIED
+  crs_web: 3857             # WGS84 Web Mercator Aux Sphere (AGOL publishing)
+  xy_tolerance: "0.003281 Feet"     # ~1 mm expressed in US survey feet
+  xy_resolution: "0.0003281 Feet"
+  # GlobalIDs are mandatory for attribute rules and for AGOL sync/offline use
+  # of the hosted layers in scope 7.4, so they are applied to every class.
+  global_ids: true
+
+# -----------------------------------------------------------------------------
+# 4.4 Domains
+# -----------------------------------------------------------------------------
+domains:
+
+  dm_LandUseClass:
+    type: coded
+    field_type: TEXT
+    description: Generalized parcel land-use class, normalized across county CADs.
+    values:
+      Industrial:     Industrial
+      Commercial:     Commercial
+      Vacant:         Vacant
+      Agricultural:   Agricultural
+      Residential:    Residential
+      Institutional:  Institutional
+      Other:          Other
+
+  dm_ZoningClass:
+    type: coded
+    field_type: TEXT
+    description: Generalized zoning class, normalized across municipal codes.
+    values:
+      HeavyIndustrial:    Heavy Industrial
+      LightIndustrial:    Light Industrial
+      PlannedIndustrial:  Planned / PD Industrial
+      Commercial:         Commercial
+      Agricultural:       Agricultural
+      Residential:        Residential
+      MixedUse:           Mixed Use
+      Unknown:            Unknown / Not Published
+
+  dm_FloodZone:
+    type: coded
+    field_type: TEXT
+    description: FEMA NFHL flood zone designation.
+    values:
+      A:          "Zone A (SFHA, no BFE)"
+      AE:         "Zone AE (SFHA, BFE determined)"
+      AH:         "Zone AH (SFHA, shallow ponding)"
+      AO:         "Zone AO (SFHA, sheet flow)"
+      X:          "Zone X (minimal risk)"
+      X500:       "Zone X, 0.2 percent annual chance"
+      D:          "Zone D (undetermined)"
+      Floodway:   "Regulatory Floodway"
+      OpenWater:  "Open Water"
+
+  dm_ScreenStatus:
+    type: coded
+    field_type: TEXT
+    description: Phase A screening outcome.
+    values:
+      Pass:    Pass
+      Fail:    Fail
+      Review:  Manual review required
+
+  dm_ScoreClass:
+    type: coded
+    field_type: SHORT
+    description: Composite score quintile, 5 = top 20 percent.
+    values:
+      1: "1 - Lowest"
+      2: "2 - Below average"
+      3: "3 - Average"
+      4: "4 - Above average"
+      5: "5 - Highest"
+
+  dm_Scenario:
+    type: coded
+    field_type: TEXT
+    description: Weighting scenario identifier.
+    values:
+      Balanced:     Balanced
+      LaborFirst:   Labor First
+      AccessFirst:  Access First
+
+  dm_Direction:
+    type: coded
+    field_type: TEXT
+    description: Criterion polarity for normalization.
+    values:
+      Benefit:  "Benefit (higher is better)"
+      Cost:     "Cost (lower is better)"
+
+  dm_TravelMode:
+    type: coded
+    field_type: TEXT
+    description: Network dataset travel mode.
+    values:
+      Driving:  Driving
+      Truck:    Truck
+
+  dm_QACheckResult:
+    type: coded
+    field_type: TEXT
+    description: QA/QC check outcome.
+    values:
+      Pass:     Pass
+      Fail:     Fail
+      Warning:  Warning
+      Skipped:  Skipped
+
+  rg_Acres:
+    type: range
+    field_type: DOUBLE
+    description: Valid parcel / site acreage.
+    min: 0
+    max: 10000
+
+  rg_Score:
+    type: range
+    field_type: DOUBLE
+    description: Normalized criterion or composite score.
+    min: 0
+    max: 100
+
+# -----------------------------------------------------------------------------
+# 4.2 Feature datasets
+# -----------------------------------------------------------------------------
+feature_datasets:
+  Reference:       Administrative and study-area boundaries
+  Cadastral:       Parcels, assemblages, and zoning
+  Transportation:  Roads, interchanges, rail, air, intermodal
+  Demographics:    ACS block groups and tracts
+  Workforce:       LEHD LODES workplace and residence characteristics
+  Environmental:   Flood, wetlands, soils
+  Utilities:       Water/sewer CCN service areas and electric infrastructure
+  Market:          Demand points and industrial building stock
+  Analysis:        Phase A/B intermediate analytical outputs
+  Results:         Scored, ranked, and shortlisted outputs
+
+# -----------------------------------------------------------------------------
+# 4.2 Feature classes
+# -----------------------------------------------------------------------------
+feature_classes:
+
+  # ---------- Reference ----------
+  StudyArea_MSA:
+    dataset: Reference
+    geometry: POLYGON
+    alias: Study Area - DFW-Arlington MSA
+    fields:
+      - {name: geoid,      type: TEXT,   length: 5,   alias: CBSA GEOID}
+      - {name: name,       type: TEXT,   length: 100, alias: MSA Name}
+      - {name: county_cnt, type: SHORT,  alias: County Count}
+      - {name: area_sqmi,  type: DOUBLE, alias: Area (sq mi)}
+      - {name: source_id,  type: TEXT,   length: 10,  alias: Source ID}
+
+  Counties:
+    dataset: Reference
+    geometry: POLYGON
+    alias: Counties
+    fields:
+      - {name: geoid,       type: TEXT,  length: 5,   alias: County GEOID}
+      - {name: name,        type: TEXT,  length: 100, alias: County Name}
+      - {name: state_fips,  type: TEXT,  length: 2,   alias: State FIPS}
+      - {name: county_fips, type: TEXT,  length: 3,   alias: County FIPS}
+      - {name: in_msa,      type: SHORT, alias: In MSA}
+      - {name: source_id,   type: TEXT,  length: 10,  alias: Source ID}
+
+  Places:
+    dataset: Reference
+    geometry: POLYGON
+    alias: Incorporated Places
+    fields:
+      - {name: geoid,      type: TEXT, length: 7,   alias: Place GEOID}
+      - {name: name,       type: TEXT, length: 100, alias: Place Name}
+      - {name: place_type, type: TEXT, length: 50,  alias: Place Type}
+      - {name: source_id,  type: TEXT, length: 10,  alias: Source ID}
+
+  # ---------- Cadastral ----------
+  Parcels:
+    dataset: Cadastral
+    geometry: POLYGON
+    alias: Parcels
+    # Scope 4.5 specifies subtypes "by land_use_class". ArcGIS requires the
+    # subtype field to be SHORT or LONG, so the subtype is keyed on the paired
+    # integer field land_use_st while land_use_class remains the human-readable
+    # domain-controlled text value. The two are kept in sync on ingest.
+    subtype_field: land_use_st
+    fields:
+      - {name: parcel_id,            type: TEXT,   length: 64,  alias: Parcel ID, nullable: false}
+      - {name: land_use_st,          type: SHORT,  alias: Land Use Subtype}
+      - {name: county,               type: TEXT,   length: 50,  alias: County}
+      - {name: situs_addr,           type: TEXT,   length: 200, alias: Situs Address}
+      - {name: owner_type,           type: TEXT,   length: 50,  alias: Owner Type}
+      - {name: owner_name,           type: TEXT,   length: 200, alias: Owner Name}
+      - {name: land_use_code,        type: TEXT,   length: 25,  alias: Land Use Code (raw)}
+      - {name: land_use_class,       type: TEXT,   length: 25,  alias: Land Use Class, domain: dm_LandUseClass}
+      - {name: zoning_code,          type: TEXT,   length: 25,  alias: Zoning Code (raw)}
+      - {name: zoning_class,         type: TEXT,   length: 25,  alias: Zoning Class, domain: dm_ZoningClass, default: Unknown}
+      - {name: acres,                type: DOUBLE, alias: Acres, domain: rg_Acres}
+      - {name: appraised_land_val,   type: DOUBLE, alias: Appraised Land Value}
+      - {name: appraised_total_val,  type: DOUBLE, alias: Appraised Total Value}
+      - {name: land_val_per_acre,    type: DOUBLE, alias: Land Value per Acre}
+      - {name: year_built,           type: SHORT,  alias: Year Built}
+      - {name: improvement_flag,     type: SHORT,  alias: Has Improvement}
+      - {name: source_id,            type: TEXT,   length: 10,  alias: Source ID}
+    subtypes:
+      Industrial:   {code: 1, defaults: {zoning_class: LightIndustrial}}
+      Commercial:   {code: 2, defaults: {zoning_class: Commercial}}
+      Vacant:       {code: 3, defaults: {zoning_class: Unknown}}
+      Agricultural: {code: 4, defaults: {zoning_class: Agricultural}}
+      Residential:  {code: 5, defaults: {zoning_class: Residential}}
+      Other:        {code: 6, defaults: {zoning_class: Unknown}}
+    default_subtype: 3
+
+  ParcelAssemblages:
+    dataset: Cadastral
+    geometry: POLYGON
+    alias: Parcel Assemblages
+    fields:
+      - {name: assemblage_id,         type: TEXT,   length: 64,  alias: Assemblage ID, nullable: false}
+      - {name: parcel_ids,            type: TEXT,   length: 500, alias: Member Parcel IDs}
+      - {name: parcel_cnt,            type: SHORT,  alias: Parcel Count}
+      - {name: acres,                 type: DOUBLE, alias: Acres, domain: rg_Acres}
+      - {name: dominant_zoning_class, type: TEXT,   length: 25,  alias: Dominant Zoning Class, domain: dm_ZoningClass}
+      - {name: method,                type: TEXT,   length: 50,  alias: Assemblage Method}
+      - {name: run_id,                type: TEXT,   length: 40,  alias: Run ID}
+
+  Zoning:
+    dataset: Cadastral
+    geometry: POLYGON
+    alias: Municipal Zoning
+    fields:
+      - {name: city,            type: TEXT,  length: 100, alias: City}
+      - {name: zoning_code,     type: TEXT,  length: 25,  alias: Zoning Code (raw)}
+      - {name: zoning_class,    type: TEXT,  length: 25,  alias: Zoning Class, domain: dm_ZoningClass, default: Unknown}
+      - {name: industrial_flag, type: SHORT, alias: Industrial Flag}
+      - {name: source_id,       type: TEXT,  length: 10,  alias: Source ID}
+
+  # ---------- Transportation ----------
+  Roads:
+    dataset: Transportation
+    geometry: POLYLINE
+    alias: Roads
+    fields:
+      - {name: road_id,        type: TEXT,   length: 64,  alias: Road ID}
+      - {name: name,           type: TEXT,   length: 150, alias: Road Name}
+      - {name: func_class,     type: SHORT,  alias: Functional Class}
+      - {name: speed_mph,      type: SHORT,  alias: Speed (mph)}
+      - {name: oneway,         type: TEXT,   length: 2,   alias: One Way}
+      - {name: truck_restrict, type: SHORT,  alias: Truck Restricted}
+      - {name: lanes,          type: SHORT,  alias: Lanes}
+      - {name: minutes,        type: DOUBLE, alias: Travel Time (min)}
+      - {name: miles,          type: DOUBLE, alias: Length (mi)}
+      - {name: source_id,      type: TEXT,   length: 10,  alias: Source ID}
+
+  Interchanges:
+    dataset: Transportation
+    geometry: POINT
+    alias: Interstate Interchanges
+    fields:
+      - {name: interchange_id,   type: TEXT, length: 64, alias: Interchange ID}
+      - {name: route_a,          type: TEXT, length: 50, alias: Route A}
+      - {name: route_b,          type: TEXT, length: 50, alias: Route B}
+      - {name: interchange_type, type: TEXT, length: 50, alias: Interchange Type}
+      - {name: source_id,        type: TEXT, length: 10, alias: Source ID}
+
+  IntermodalTerminals:
+    dataset: Transportation
+    geometry: POINT
+    alias: Intermodal Freight Terminals
+    fields:
+      - {name: facility_id, type: TEXT, length: 64,  alias: Facility ID}
+      - {name: name,        type: TEXT, length: 150, alias: Facility Name}
+      - {name: operator,    type: TEXT, length: 100, alias: Operator}
+      - {name: mode,        type: TEXT, length: 50,  alias: Mode}
+      - {name: source_id,   type: TEXT, length: 10,  alias: Source ID}
+
+  Railroads:
+    dataset: Transportation
+    geometry: POLYLINE
+    alias: Railroads
+    fields:
+      - {name: owner,      type: TEXT, length: 100, alias: Owner}
+      - {name: rail_class, type: TEXT, length: 50,  alias: Rail Class}
+      - {name: source_id,  type: TEXT, length: 10,  alias: Source ID}
+
+  Airports:
+    dataset: Transportation
+    geometry: POINT
+    alias: Airports
+    fields:
+      - {name: name,       type: TEXT,  length: 150, alias: Airport Name}
+      - {name: faa_code,   type: TEXT,  length: 10,  alias: FAA Code}
+      - {name: cargo_flag, type: SHORT, alias: Cargo Facility}
+      - {name: source_id,  type: TEXT,  length: 10,  alias: Source ID}
+
+  # ---------- Demographics ----------
+  BlockGroups_ACS:
+    dataset: Demographics
+    geometry: POLYGON
+    alias: Block Groups with ACS Estimates
+    fields:
+      - {name: geoid,             type: TEXT,   length: 12, alias: Block Group GEOID, nullable: false}
+      - {name: pop_total,         type: LONG,   alias: Total Population}
+      - {name: hh_total,          type: LONG,   alias: Total Households}
+      - {name: labor_force,       type: LONG,   alias: Civilian Labor Force}
+      - {name: unemployed,        type: LONG,   alias: Unemployed}
+      - {name: unemp_rate,        type: DOUBLE, alias: Unemployment Rate}
+      - {name: occ_transp_matmov, type: LONG,   alias: Transport and Material Moving Workers}
+      - {name: occ_prod,          type: LONG,   alias: Production Occupation Workers}
+      - {name: med_hh_inc,        type: LONG,   alias: Median Household Income}
+      - {name: workers_16plus,    type: LONG,   alias: Workers 16 Plus}
+      - {name: vehicles_0_hh,     type: LONG,   alias: Households with No Vehicle}
+      - {name: acs_vintage,       type: TEXT,   length: 20, alias: ACS Vintage}
+      - {name: source_id,         type: TEXT,   length: 10, alias: Source ID}
+
+  BlockGroups_Centroids:
+    dataset: Demographics
+    geometry: POINT
+    alias: Block Group Population-Weighted Centroids
+    fields:
+      - {name: geoid,             type: TEXT,  length: 12, alias: Block Group GEOID, nullable: false}
+      - {name: pop_total,         type: LONG,  alias: Total Population}
+      - {name: pop_weighted_flag, type: SHORT, alias: Population Weighted}
+
+  Tracts:
+    dataset: Demographics
+    geometry: POLYGON
+    alias: Census Tracts
+    fields:
+      - {name: geoid, type: TEXT, length: 11,  alias: Tract GEOID, nullable: false}
+      - {name: name,  type: TEXT, length: 100, alias: Tract Name}
+
+  # ---------- Workforce ----------
+  Tracts_LODES_WAC:
+    dataset: Workforce
+    geometry: POLYGON
+    alias: LODES Workplace Area Characteristics
+    fields:
+      - {name: geoid,                type: TEXT,  length: 11, alias: Tract GEOID, nullable: false}
+      - {name: jobs_total,           type: LONG,  alias: Total Jobs}
+      - {name: jobs_cns08_transp_wh, type: LONG,  alias: Transport and Warehousing Jobs (CNS08)}
+      - {name: jobs_cns07_retail,    type: LONG,  alias: Retail Jobs (CNS07)}
+      - {name: lodes_year,           type: SHORT, alias: LODES Year}
+      - {name: source_id,            type: TEXT,  length: 10, alias: Source ID}
+
+  Tracts_LODES_RAC:
+    dataset: Workforce
+    geometry: POLYGON
+    alias: LODES Residence Area Characteristics
+    fields:
+      - {name: geoid,             type: TEXT,  length: 11, alias: Tract GEOID, nullable: false}
+      - {name: res_workers_total, type: LONG,  alias: Resident Workers}
+      - {name: res_cns08,         type: LONG,  alias: Resident Transport and Warehousing Workers}
+      - {name: lodes_year,        type: SHORT, alias: LODES Year}
+      - {name: source_id,         type: TEXT,  length: 10, alias: Source ID}
+
+  # ---------- Environmental ----------
+  FloodZones_NFHL:
+    dataset: Environmental
+    geometry: POLYGON
+    alias: FEMA Flood Hazard Zones
+    fields:
+      - {name: fld_zone,      type: TEXT,  length: 20, alias: Flood Zone, domain: dm_FloodZone}
+      - {name: sfha_flag,     type: SHORT, alias: SFHA Flag}
+      - {name: floodway_flag, type: SHORT, alias: Floodway Flag}
+      - {name: source_id,     type: TEXT,  length: 10, alias: Source ID}
+
+  Wetlands_NWI:
+    dataset: Environmental
+    geometry: POLYGON
+    alias: National Wetlands Inventory
+    fields:
+      - {name: wetland_type, type: TEXT, length: 100, alias: Wetland Type}
+      - {name: attribute,    type: TEXT, length: 50,  alias: NWI Attribute}
+      - {name: source_id,    type: TEXT, length: 10,  alias: Source ID}
+
+  Soils_SSURGO:
+    dataset: Environmental
+    geometry: POLYGON
+    alias: SSURGO Soil Map Units
+    fields:
+      - {name: mukey,              type: TEXT,   length: 30, alias: Map Unit Key}
+      - {name: hydric_pct,         type: DOUBLE, alias: Hydric Percent}
+      - {name: shrink_swell_class, type: TEXT,   length: 50, alias: Shrink-Swell Class}
+      - {name: drainage_class,     type: TEXT,   length: 50, alias: Drainage Class}
+      - {name: source_id,          type: TEXT,   length: 10, alias: Source ID}
+
+  # ---------- Utilities ----------
+  WaterCCN:
+    dataset: Utilities
+    geometry: POLYGON
+    alias: Water CCN Service Areas
+    fields:
+      - {name: ccn_no,       type: TEXT, length: 25,  alias: CCN Number}
+      - {name: utility_name, type: TEXT, length: 150, alias: Utility Name}
+      - {name: service_type, type: TEXT, length: 25,  alias: Service Type}
+      - {name: source_id,    type: TEXT, length: 10,  alias: Source ID}
+
+  SewerCCN:
+    dataset: Utilities
+    geometry: POLYGON
+    alias: Sewer CCN Service Areas
+    fields:
+      - {name: ccn_no,       type: TEXT, length: 25,  alias: CCN Number}
+      - {name: utility_name, type: TEXT, length: 150, alias: Utility Name}
+      - {name: service_type, type: TEXT, length: 25,  alias: Service Type}
+      - {name: source_id,    type: TEXT, length: 10,  alias: Source ID}
+
+  Substations:
+    dataset: Utilities
+    geometry: POINT
+    alias: Electric Substations
+    fields:
+      - {name: name,       type: TEXT,   length: 150, alias: Substation Name}
+      - {name: voltage_kv, type: DOUBLE, alias: Voltage (kV)}
+      - {name: owner,      type: TEXT,   length: 150, alias: Owner}
+      - {name: source_id,  type: TEXT,   length: 10,  alias: Source ID}
+
+  # ---------- Market ----------
+  Stores_DSG:
+    dataset: Market
+    geometry: POINT
+    alias: DICKS Store Network (Demand Points)
+    fields:
+      - {name: store_id,      type: TEXT,   length: 32,  alias: Store ID, nullable: false}
+      - {name: banner,        type: TEXT,   length: 50,  alias: Banner}
+      - {name: name,          type: TEXT,   length: 150, alias: Store Name}
+      - {name: address,       type: TEXT,   length: 200, alias: Address}
+      - {name: city,          type: TEXT,   length: 100, alias: City}
+      - {name: state,         type: TEXT,   length: 2,   alias: State}
+      - {name: zip,           type: TEXT,   length: 10,  alias: ZIP}
+      - {name: lat,           type: DOUBLE, alias: Latitude}
+      - {name: lon,           type: DOUBLE, alias: Longitude}
+      - {name: source,        type: TEXT,   length: 100, alias: Source}
+      - {name: geocode_score, type: DOUBLE, alias: Geocode Score}
+      - {name: served_flag,   type: SHORT,  alias: In Served Set}
+      - {name: source_id,     type: TEXT,   length: 10,  alias: Source ID}
+
+  IndustrialBuildings:
+    dataset: Market
+    geometry: POLYGON
+    alias: Industrial Building Footprints
+    fields:
+      - {name: bldg_id,         type: TEXT,   length: 64, alias: Building ID}
+      - {name: area_sqft,       type: DOUBLE, alias: Footprint Area (sq ft)}
+      - {name: industrial_flag, type: SHORT,  alias: Industrial Flag}
+      - {name: source_id,       type: TEXT,   length: 10, alias: Source ID}
+
+  # ---------- Analysis ----------
+  CandidateSites:
+    dataset: Analysis
+    geometry: POLYGON
+    alias: Candidate Sites
+    fields:
+      - {name: cand_id,       type: TEXT,   length: 64,  alias: Candidate ID, nullable: false}
+      - {name: parcel_ids,    type: TEXT,   length: 500, alias: Source Parcel IDs}
+      - {name: origin_type,   type: TEXT,   length: 25,  alias: Origin (Parcel or Assemblage)}
+      - {name: acres,         type: DOUBLE, alias: Acres, domain: rg_Acres}
+      - {name: zoning_class,  type: TEXT,   length: 25,  alias: Zoning Class, domain: dm_ZoningClass}
+      - {name: screen_status, type: TEXT,   length: 10,  alias: Screen Status, domain: dm_ScreenStatus}
+      - {name: screen_reason, type: TEXT,   length: 200, alias: First Failing Rule}
+      - {name: centroid_x,    type: DOUBLE, alias: Centroid X}
+      - {name: centroid_y,    type: DOUBLE, alias: Centroid Y}
+      - {name: run_id,        type: TEXT,   length: 40,  alias: Run ID, nullable: false}
+
+  ServiceAreas_Driving:
+    dataset: Analysis
+    geometry: POLYGON
+    alias: Labor-Shed Service Areas (Driving)
+    fields:
+      - {name: cand_id,   type: TEXT,  length: 64, alias: Candidate ID, nullable: false}
+      - {name: break_min, type: SHORT, alias: Break (minutes)}
+      - {name: run_id,    type: TEXT,  length: 40, alias: Run ID, nullable: false}
+
+  ServiceAreas_Truck:
+    dataset: Analysis
+    geometry: POLYGON
+    alias: Freight-Reach Service Areas (Truck)
+    fields:
+      - {name: cand_id,   type: TEXT,  length: 64, alias: Candidate ID, nullable: false}
+      - {name: break_min, type: SHORT, alias: Break (minutes)}
+      - {name: run_id,    type: TEXT,  length: 40, alias: Run ID, nullable: false}
+
+  # ---------- Results ----------
+  SiteScores:
+    dataset: Results
+    geometry: POLYGON
+    alias: Site Scores
+    fields:
+      - {name: cand_id,     type: TEXT,   length: 64, alias: Candidate ID, nullable: false}
+      - {name: run_id,      type: TEXT,   length: 40, alias: Run ID, nullable: false}
+      - {name: scenario,    type: TEXT,   length: 25, alias: Scenario, domain: dm_Scenario}
+      - {name: composite,   type: DOUBLE, alias: Composite Score, domain: rg_Score}
+      - {name: rank,        type: LONG,   alias: Rank}
+      - {name: percentile,  type: DOUBLE, alias: Percentile}
+      - {name: score_class, type: SHORT,  alias: Score Class, domain: dm_ScoreClass}
+    generated_fields:
+      # c01_raw .. c11_raw and c01_s .. c11_s (Sections 5.3 / 5.4)
+      - pattern: "c{i:02d}_raw"
+        count: 11
+        type: DOUBLE
+        alias: "Criterion C{i:02d} (raw)"
+      - pattern: "c{i:02d}_s"
+        count: 11
+        type: DOUBLE
+        alias: "Criterion C{i:02d} (scaled 0-100)"
+        domain: rg_Score
+
+  Shortlist:
+    dataset: Results
+    geometry: POLYGON
+    alias: Shortlist
+    fields:
+      - {name: cand_id,          type: TEXT,   length: 64,  alias: Candidate ID, nullable: false}
+      - {name: run_id,           type: TEXT,   length: 40,  alias: Run ID}
+      - {name: scenario,         type: TEXT,   length: 25,  alias: Scenario, domain: dm_Scenario}
+      - {name: rank,             type: LONG,   alias: Rank}
+      - {name: composite,        type: DOUBLE, alias: Composite Score, domain: rg_Score}
+      - {name: profile_page_no,  type: SHORT,  alias: Profile Page No}
+      - {name: recommended_flag, type: SHORT,  alias: Recommended}
+      - {name: notes,            type: TEXT,   length: 500, alias: Notes}
+
+# -----------------------------------------------------------------------------
+# 4.3 Standalone tables (GDB root - tables cannot live inside feature datasets)
+# -----------------------------------------------------------------------------
+tables:
+
+  DataSourceRegistry:
+    alias: Data Source Registry
+    fields:
+      - {name: source_id,      type: TEXT, length: 10,   alias: Source ID, nullable: false}
+      - {name: provider,       type: TEXT, length: 150,  alias: Provider}
+      - {name: dataset,        type: TEXT, length: 200,  alias: Dataset}
+      - {name: url,            type: TEXT, length: 500,  alias: URL}
+      - {name: vintage,        type: TEXT, length: 50,   alias: Vintage}
+      - {name: download_date,  type: DATE, alias: Download Date}
+      - {name: license,        type: TEXT, length: 200,  alias: License}
+      - {name: native_crs,     type: TEXT, length: 100,  alias: Native CRS}
+      - {name: transformation, type: TEXT, length: 150,  alias: Datum Transformation}
+      - {name: notes,          type: TEXT, length: 1000, alias: Notes}
+
+  CriteriaDefinitions:
+    alias: Criteria Definitions
+    fields:
+      - {name: criterion_id,  type: TEXT, length: 10,   alias: Criterion ID, nullable: false}
+      - {name: name,          type: TEXT, length: 150,  alias: Name}
+      - {name: description,   type: TEXT, length: 1000, alias: Description}
+      - {name: unit,          type: TEXT, length: 50,   alias: Unit}
+      - {name: direction,     type: TEXT, length: 10,   alias: Direction, domain: dm_Direction}
+      - {name: normalization, type: TEXT, length: 100,  alias: Normalization}
+      - {name: source_id,     type: TEXT, length: 50,   alias: Source IDs}
+
+  WeightScenarios:
+    alias: Weight Scenarios
+    fields:
+      - {name: scenario,     type: TEXT,   length: 25, alias: Scenario, domain: dm_Scenario}
+      - {name: criterion_id, type: TEXT,   length: 10, alias: Criterion ID}
+      - {name: weight,       type: DOUBLE, alias: Weight}
+
+  ScoreRuns:
+    alias: Score Run Log
+    fields:
+      - {name: run_id,          type: TEXT, length: 40,    alias: Run ID, nullable: false}
+      - {name: scenario,        type: TEXT, length: 25,    alias: Scenario, domain: dm_Scenario}
+      - {name: run_timestamp,   type: DATE, alias: Timestamp}
+      - {name: run_user,        type: TEXT, length: 100,   alias: User}
+      - {name: toolbox_version, type: TEXT, length: 25,    alias: Toolbox Version}
+      - {name: git_commit,      type: TEXT, length: 40,    alias: Git Commit}
+      - {name: parameters_json, type: TEXT, length: 100000, alias: Parameters (JSON)}
+      - {name: cand_cnt,        type: LONG, alias: Candidate Count}
+      - {name: notes,           type: TEXT, length: 1000,  alias: Notes}
+
+  QAQC_Log:
+    alias: QA/QC Log
+    fields:
+      - {name: check_id,      type: TEXT,   length: 40,   alias: Check ID}
+      - {name: run_id,        type: TEXT,   length: 40,   alias: Run ID}
+      - {name: layer,         type: TEXT,   length: 100,  alias: Layer}
+      - {name: check_name,    type: TEXT,   length: 150,  alias: Check Name}
+      - {name: result,        type: TEXT,   length: 10,   alias: Result, domain: dm_QACheckResult}
+      - {name: affected_cnt,  type: LONG,   alias: Affected Count}
+      - {name: threshold,     type: DOUBLE, alias: Threshold}
+      - {name: passed,        type: SHORT,  alias: Passed}
+      - {name: check_timestamp, type: DATE, alias: Timestamp}
+      - {name: detail,        type: TEXT,   length: 1000, alias: Detail}
+
+  StoreServiceSet:
+    alias: Served Store Set by Run
+    fields:
+      - {name: run_id,        type: TEXT,   length: 40, alias: Run ID}
+      - {name: store_id,      type: TEXT,   length: 32, alias: Store ID}
+      - {name: served_flag,   type: SHORT,  alias: Served}
+      - {name: truck_minutes, type: DOUBLE, alias: Truck Minutes from MSA Centroid}
+
+  # OD outputs stored as tables rather than polyline.
+  # [DECISION per 4.2 "Polyline (or table)": table form chosen. All-pairs
+  # candidate-to-store lines would be ~200 x 150 straight-line features with no
+  # cartographic value; the flow map M06 is drawn from LODES_OD_Flows instead.]
+  OD_Cand_to_Stores:
+    alias: OD - Candidates to Served Stores
+    fields:
+      - {name: cand_id,       type: TEXT,   length: 64, alias: Candidate ID, nullable: false}
+      - {name: store_id,      type: TEXT,   length: 32, alias: Store ID, nullable: false}
+      - {name: truck_minutes, type: DOUBLE, alias: Truck Minutes}
+      - {name: truck_miles,   type: DOUBLE, alias: Truck Miles}
+      - {name: run_id,        type: TEXT,   length: 40, alias: Run ID, nullable: false}
+
+  OD_Cand_to_Interchange:
+    alias: OD - Candidates to Nearest Interchange
+    fields:
+      - {name: cand_id,        type: TEXT,   length: 64, alias: Candidate ID, nullable: false}
+      - {name: interchange_id, type: TEXT,   length: 64, alias: Interchange ID}
+      - {name: truck_minutes,  type: DOUBLE, alias: Truck Minutes}
+      - {name: run_id,         type: TEXT,   length: 40, alias: Run ID, nullable: false}
+
+  OD_Cand_to_Intermodal:
+    alias: OD - Candidates to Nearest Intermodal Terminal
+    fields:
+      - {name: cand_id,       type: TEXT,   length: 64, alias: Candidate ID, nullable: false}
+      - {name: facility_id,   type: TEXT,   length: 64, alias: Facility ID}
+      - {name: truck_minutes, type: DOUBLE, alias: Truck Minutes}
+      - {name: run_id,        type: TEXT,   length: 40, alias: Run ID, nullable: false}
+
+  LODES_OD_Flows:
+    alias: LODES Origin-Destination Flows
+    fields:
+      - {name: h_geoid, type: TEXT, length: 11, alias: Home Tract GEOID}
+      - {name: w_geoid, type: TEXT, length: 11, alias: Work Tract GEOID}
+      - {name: s000,    type: LONG, alias: Total Jobs}
+      - {name: sa01,    type: LONG, alias: Age 29 or younger}
+      - {name: sa02,    type: LONG, alias: Age 30 to 54}
+      - {name: sa03,    type: LONG, alias: Age 55 or older}
+      - {name: se01,    type: LONG, alias: Earnings 1250 per month or less}
+      - {name: se02,    type: LONG, alias: Earnings 1251 to 3333 per month}
+      - {name: se03,    type: LONG, alias: Earnings over 3333 per month}
+      - {name: si01,    type: LONG, alias: Goods Producing}
+      - {name: si02,    type: LONG, alias: Trade Transportation Utilities}
+      - {name: si03,    type: LONG, alias: All Other Services}
+
+  SensitivityResults:
+    alias: Sensitivity Analysis Results
+    fields:
+      - {name: run_id,     type: TEXT,   length: 40, alias: Run ID, nullable: false}
+      - {name: scenario,   type: TEXT,   length: 25, alias: Scenario, domain: dm_Scenario}
+      - {name: cand_id,    type: TEXT,   length: 64, alias: Candidate ID, nullable: false}
+      - {name: method,     type: TEXT,   length: 25, alias: Method (OAT/MonteCarlo/Threshold)}
+      - {name: base_rank,  type: LONG,   alias: Base Rank}
+      - {name: min_rank,   type: LONG,   alias: Min Rank}
+      - {name: max_rank,   type: LONG,   alias: Max Rank}
+      - {name: mean_rank,  type: DOUBLE, alias: Mean Rank}
+      - {name: top5_freq,  type: DOUBLE, alias: Top-5 Frequency}
+      - {name: top10_freq, type: DOUBLE, alias: Top-10 Frequency}
+
+# -----------------------------------------------------------------------------
+# 4.5 Relationship classes (all simple)
+# -----------------------------------------------------------------------------
+relationships:
+  - name: rel_Candidate_Scores
+    origin: CandidateSites
+    destination: SiteScores
+    cardinality: ONE_TO_MANY
+    primary_key: cand_id
+    foreign_key: cand_id
+    forward_label: has scores
+    backward_label: scores for
+
+  - name: rel_Run_Scores
+    origin: ScoreRuns
+    destination: SiteScores
+    cardinality: ONE_TO_MANY
+    primary_key: run_id
+    foreign_key: run_id
+    forward_label: produced scores
+    backward_label: from run
+
+  - name: rel_Run_Sensitivity
+    origin: ScoreRuns
+    destination: SensitivityResults
+    cardinality: ONE_TO_MANY
+    primary_key: run_id
+    foreign_key: run_id
+    forward_label: produced sensitivity
+    backward_label: from run
+
+  - name: rel_Criteria_Weights
+    origin: CriteriaDefinitions
+    destination: WeightScenarios
+    cardinality: ONE_TO_MANY
+    primary_key: criterion_id
+    foreign_key: criterion_id
+    forward_label: weighted by
+    backward_label: weights criterion
+
+  - name: rel_Candidate_ODStores
+    origin: CandidateSites
+    destination: OD_Cand_to_Stores
+    cardinality: ONE_TO_MANY
+    primary_key: cand_id
+    foreign_key: cand_id
+    forward_label: has store OD rows
+    backward_label: OD row for
+
+  - name: rel_Source_Parcels
+    origin: DataSourceRegistry
+    destination: Parcels
+    cardinality: ONE_TO_MANY
+    primary_key: source_id
+    foreign_key: source_id
+    forward_label: sources
+    backward_label: sourced from
+
+  - name: rel_Source_Zoning
+    origin: DataSourceRegistry
+    destination: Zoning
+    cardinality: ONE_TO_MANY
+    primary_key: source_id
+    foreign_key: source_id
+    forward_label: sources
+    backward_label: sourced from
+
+  - name: rel_Source_Roads
+    origin: DataSourceRegistry
+    destination: Roads
+    cardinality: ONE_TO_MANY
+    primary_key: source_id
+    foreign_key: source_id
+    forward_label: sources
+    backward_label: sourced from
+
+  - name: rel_Source_Stores
+    origin: DataSourceRegistry
+    destination: Stores_DSG
+    cardinality: ONE_TO_MANY
+    primary_key: source_id
+    foreign_key: source_id
+    forward_label: sources
+    backward_label: sourced from
+
+  - name: rel_Candidate_Shortlist
+    origin: CandidateSites
+    destination: Shortlist
+    cardinality: ONE_TO_MANY
+    primary_key: cand_id
+    foreign_key: cand_id
+    forward_label: shortlisted as
+    backward_label: shortlist of
+
+# -----------------------------------------------------------------------------
+# 4.5 Topology
+# -----------------------------------------------------------------------------
+topologies:
+  - name: Cadastral_Topology
+    dataset: Cadastral
+    cluster_tolerance: 0.1        # feet
+    feature_classes: [Parcels, ParcelAssemblages]
+    rules:
+      - {rule: "Must Not Overlap (Area)",   origin: Parcels}
+      - {rule: "Must Not Have Gaps (Area)", origin: Parcels}
+      - {rule: "Must Not Overlap (Area)",   origin: ParcelAssemblages}
+
+# -----------------------------------------------------------------------------
+# 4.5 Attribute rules
+# -----------------------------------------------------------------------------
+attribute_rules:
+  - name: calc_Parcel_Acres
+    table: Parcels
+    type: CALCULATION
+    field: acres
+    triggers: [INSERT, UPDATE]
+    script: "return $feature.Shape_Area / 43560;"
+    description: Acreage derived from geometry (analysis CRS is US survey feet).
+
+  - name: calc_Parcel_LandValPerAcre
+    table: Parcels
+    type: CALCULATION
+    field: land_val_per_acre
+    triggers: [INSERT, UPDATE]
+    script: "if (IsEmpty($feature.acres) || $feature.acres <= 0) { return null; } return $feature.appraised_land_val / $feature.acres;"
+    description: Appraised land value normalized per acre.
+
+  - name: calc_Assemblage_Acres
+    table: ParcelAssemblages
+    type: CALCULATION
+    field: acres
+    triggers: [INSERT, UPDATE]
+    script: "return $feature.Shape_Area / 43560;"
+    description: Assemblage acreage derived from dissolved geometry.
+
+  - name: cons_SiteScores_Composite
+    table: SiteScores
+    type: CONSTRAINT
+    triggers: [INSERT, UPDATE]
+    script: "return IsEmpty($feature.composite) || ($feature.composite >= 0 && $feature.composite <= 100);"
+    error_number: 1001
+    error_message: "composite must be between 0 and 100"
+    description: Composite score must fall in the normalized range.
+
+  - name: cons_SiteScores_Rank
+    table: SiteScores
+    type: CONSTRAINT
+    triggers: [INSERT, UPDATE]
+    script: "return IsEmpty($feature.rank) || $feature.rank >= 1;"
+    error_number: 1002
+    error_message: "rank must be >= 1"
+    description: Rank is 1-based.

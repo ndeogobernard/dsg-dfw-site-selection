@@ -1,0 +1,392 @@
+# =============================================================================
+# Data source registry (scope Section 3).
+#
+# Every entry is loaded into the DataSourceRegistry table on ingest. All sources
+# are free and public.
+#
+# `portal` is the canonical landing page and is stable. `endpoint` is the direct
+# download URL and is NOT stable - portals reorganize. Entries carrying
+# `verify_endpoint: true` must be confirmed against the live portal before the
+# first download; IngestAndStandardize refuses to run on an unverified endpoint
+# unless --allow-unverified is passed.
+#
+# `field_map` translates provider field names to the schema field names in
+# config/schema.yaml. Parcel schemas differ per county, so S01 carries a
+# per-county map (scope Section 14, parcel-data risk).
+# =============================================================================
+
+defaults:
+  target_crs: 6584
+  datum_transformation: null      # set per-source where the native datum differs
+  download_dir: "{raw_dir}/{source_id}"
+
+study_area:
+  msa_name: "Dallas-Fort Worth-Arlington, TX"
+  cbsa_code: "19100"              # [VERIFY against current OMB delineation on first TIGER pull]
+  state_fips: "48"
+  # 11 counties, 2023 OMB delineation. Hood and Somervell were removed from the
+  # MSA in the 2023 update and are correctly absent here.
+  counties:
+    Collin:   "085"
+    Dallas:   "113"
+    Denton:   "121"
+    Ellis:    "139"
+    Hunt:     "231"
+    Johnson:  "251"
+    Kaufman:  "257"
+    Parker:   "367"
+    Rockwall: "397"
+    Tarrant:  "439"
+    Wise:     "497"
+  context_buffer_miles: 15        # scope 2.1 - prevents truncated drive-time polygons
+  store_search_radius_miles: 600  # scope 2.2
+
+sources:
+
+  # ---------------------------------------------------------------- Cadastral
+  - source_id: S01
+    category: Parcels
+    dataset: StratMap Land Parcels (11 DFW counties)
+    provider: Texas Geographic Information Office (TxGIO, formerly TNRIS)
+    portal: https://data.tnris.org/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain / open data (confirm per county)
+    format: shapefile
+    target: Parcels
+    fallback:
+      note: >-
+        County appraisal districts where StratMap coverage is stale or absent -
+        TAD (Tarrant), DCAD (Dallas), CCAD (Collin), Denton CAD, Ellis CAD,
+        Johnson CAD, Kaufman CAD, Parker CAD, Rockwall CAD, Hunt CAD, Wise CAD.
+    field_map:
+      _default:
+        parcel_id: PROP_ID
+        owner_name: OWNER_NAME
+        situs_addr: SITUS_ADDR
+        land_use_code: LAND_STATE
+        appraised_land_val: LAND_VAL
+        appraised_total_val: MKT_VAL
+        year_built: YR_BUILT
+      # Per-county overrides are added during Week 1 as each download is
+      # inspected. The ingest tool fails loudly on an unmapped required field
+      # rather than silently writing nulls.
+    notes: >-
+      Largest dataset in the project - expect millions of polygons across 11
+      counties. Ingest clips to the MSA + 15-mile buffer before loading.
+
+  - source_id: S02
+    category: Zoning
+    dataset: Municipal zoning (city open-data portals)
+    provider: Individual municipalities
+    portal: null
+    endpoint: null
+    verify_endpoint: true
+    license: Varies by city
+    format: mixed
+    target: Zoning
+    cities:
+      # Confirmed-publishing cities are filled in during Week 1. Cities with no
+      # open zoning layer fall back to parcel land-use + NLCD and are flagged
+      # screen_status = Review (config/screening.yaml -> zoning.fallback).
+      - {name: Fort Worth,    portal: null, status: unverified}
+      - {name: Dallas,        portal: null, status: unverified}
+      - {name: Arlington,     portal: null, status: unverified}
+      - {name: Irving,        portal: null, status: unverified}
+      - {name: Grand Prairie, portal: null, status: unverified}
+      - {name: Burleson,      portal: null, status: unverified}
+      - {name: Lancaster,     portal: null, status: unverified}
+      - {name: Mesquite,      portal: null, status: unverified}
+      - {name: Denton,        portal: null, status: unverified}
+      - {name: Frisco,        portal: null, status: unverified}
+      - {name: McKinney,      portal: null, status: unverified}
+    notes: >-
+      HIGHEST SCHEDULE RISK in the project. No authoritative regional zoning
+      layer exists; coverage is city-by-city with inconsistent schemas, and
+      unincorporated county land has no zoning at all. Attack this first.
+
+  # ----------------------------------------------------------- Transportation
+  - source_id: S03
+    category: Roads
+    dataset: TxDOT Roadway Inventory (RHiNo)
+    provider: Texas Department of Transportation
+    portal: https://gis-txdot.opendata.arcgis.com/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: shapefile
+    target: Roads
+    notes: Primary network source. Check for truck-restriction attributes on ingest.
+
+  - source_id: S04
+    category: Roads (alternate)
+    dataset: OpenStreetMap Texas extract
+    provider: Geofabrik
+    portal: https://download.geofabrik.de/north-america/us/texas.html
+    endpoint: https://download.geofabrik.de/north-america/us/texas-latest-free.shp.zip
+    verify_endpoint: false
+    license: ODbL 1.0 (attribution required)
+    format: shapefile
+    target: Roads
+    notes: Gap fill and alternate build. ODbL attribution must appear on published maps.
+
+  - source_id: S05
+    category: Interchanges
+    dataset: Interstate / limited-access interchanges
+    provider: Derived from S03, or NTAD
+    portal: https://geodata.bts.gov/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: derived
+    target: Interchanges
+    derivation: Intersections of functional class 1 and 2 segments in S03.
+
+  - source_id: S06
+    category: Intermodal
+    dataset: Intermodal freight facilities, rail lines, airports (NTAD)
+    provider: USDOT Bureau of Transportation Statistics
+    portal: https://geodata.bts.gov/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: geojson
+    target: [IntermodalTerminals, Railroads, Airports]
+    notes: >-
+      Scope 5.2 names BNSF Alliance, UP Dallas Intermodal Terminal, DFW Airport
+      cargo, and Fort Worth Alliance Airport - [VERIFY] this list against NTAD
+      rather than assuming it is complete.
+
+  - source_id: S07
+    category: Freight network
+    dataset: National Highway Freight Network
+    provider: FHWA
+    portal: https://ops.fhwa.dot.gov/freight/infrastructure/nfn/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: shapefile
+    target: null
+    notes: Context and corridor maps only; not scored.
+
+  # ------------------------------------------------------------ Demographics
+  - source_id: S08
+    category: Demographics
+    dataset: ACS 5-year estimates, block group
+    provider: US Census Bureau
+    portal: https://www.census.gov/data/developers/data-sets/acs-5year.html
+    endpoint: https://api.census.gov/data/{year}/acs/acs5
+    verify_endpoint: false
+    license: Public domain
+    format: census_api
+    target: BlockGroups_ACS
+    tables:
+      B23025: Employment status for the population 16 years and over
+      C24010: Sex by occupation for the civilian employed population 16 years and over
+      B08301: Means of transportation to work
+      B08201: Household size by vehicles available
+      B19013: Median household income
+    api_key_env: CENSUS_API_KEY
+    notes: >-
+      Block-group geography is not available for every ACS table via the API;
+      confirm C24010 block-group availability for the chosen vintage and fall
+      back to tract-level apportionment if needed. Document either way.
+
+  - source_id: S09
+    category: Geography
+    dataset: TIGER/Line block groups, tracts, counties, places, CBSA
+    provider: US Census Bureau
+    portal: https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+    endpoint: https://www2.census.gov/geo/tiger/TIGER{year}/
+    verify_endpoint: false
+    license: Public domain
+    format: shapefile
+    target: [BlockGroups_ACS, Tracts, Counties, Places, StudyArea_MSA]
+    notes: Vintage must match the ACS vintage used in S08.
+
+  - source_id: S10
+    category: Workforce OD
+    dataset: LEHD LODES 8 (WAC, RAC, OD)
+    provider: US Census Bureau LEHD
+    portal: https://lehd.ces.census.gov/data/
+    endpoint: https://lehd.ces.census.gov/data/lodes/LODES8/
+    verify_endpoint: false
+    license: Public domain
+    format: csv_gz
+    target: [Tracts_LODES_WAC, Tracts_LODES_RAC, LODES_OD_Flows]
+    states: [tx, ok, la, ar, nm]
+    notes: >-
+      LODES is published at block level; aggregate to tract before loading.
+      CNS08 = Transportation and Warehousing (NAICS 48-49).
+
+  - source_id: S11
+    category: Wages
+    dataset: OEWS (53-7062, 53-7065, 53-3032) and QCEW NAICS 493
+    provider: US Bureau of Labor Statistics
+    portal: https://www.bls.gov/oes/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: xlsx
+    target: null
+    notes: Report context and an optional county-level labor-cost criterion; not in C01-C11.
+
+  - source_id: S12
+    category: Employers
+    dataset: County Business Patterns (NAICS 493, 484)
+    provider: US Census Bureau
+    portal: https://www.census.gov/programs-surveys/cbp.html
+    endpoint: https://api.census.gov/data/{year}/cbp
+    verify_endpoint: false
+    license: Public domain
+    format: census_api
+    target: null
+    notes: Industrial cluster context for the report.
+
+  # ----------------------------------------------------------- Environmental
+  - source_id: S13
+    category: Flood
+    dataset: National Flood Hazard Layer
+    provider: FEMA
+    portal: https://msc.fema.gov/portal/advanceSearch
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: gdb
+    target: FloodZones_NFHL
+    notes: Hard filter (floodway, SFHA percent) and criterion C09.
+
+  - source_id: S14
+    category: Wetlands
+    dataset: National Wetlands Inventory
+    provider: USFWS
+    portal: https://www.fws.gov/program/national-wetlands-inventory/data-download
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: gdb
+    target: Wetlands_NWI
+
+  - source_id: S15
+    category: Soils
+    dataset: gSSURGO Texas
+    provider: USDA NRCS
+    portal: https://www.nrcs.usda.gov/resources/data-and-reports/gridded-soil-survey-geographic-gssurgo-database
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: gdb
+    target: Soils_SSURGO
+    notes: Large download. Only hydric percent, shrink-swell, and drainage class are retained.
+
+  - source_id: S16
+    category: Elevation
+    dataset: 3DEP 1/3 arc-second DEM (1 m where available)
+    provider: USGS National Map
+    portal: https://apps.nationalmap.gov/downloader/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: raster
+    target: Slope_pct
+    derivation: Slope (PERCENT_RISE) via Spatial Analyst, projected to the analysis CRS.
+
+  - source_id: S17
+    category: Land cover
+    dataset: NLCD
+    provider: MRLC
+    portal: https://www.mrlc.gov/data
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: raster
+    target: LandCover_NLCD
+
+  - source_id: S18
+    category: Buildings
+    dataset: Microsoft/Google Open Buildings or OSM building footprints
+    provider: Microsoft (GitHub) / OpenStreetMap
+    portal: https://github.com/microsoft/USBuildingFootprints
+    endpoint: null
+    verify_endpoint: true
+    license: ODbL (Microsoft US Building Footprints)
+    format: geojson
+    target: IndustrialBuildings
+    notes: >-
+      Footprints carry no use attribute. Industrial classification is derived by
+      intersecting with industrial-zoned or industrial land-use parcels; the
+      method must be stated in the report since C11 depends on it.
+
+  # --------------------------------------------------------------- Utilities
+  - source_id: S19
+    category: Water/sewer service
+    dataset: Certificates of Convenience and Necessity (water and sewer)
+    provider: TCEQ
+    portal: https://www.tceq.texas.gov/gis/download-tceq-gis-data
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: shapefile
+    target: [WaterCCN, SewerCCN]
+    notes: >-
+      CCN indicates the right to serve, not existing capacity or infrastructure
+      at the parcel. Stated as a limitation in the report and as a due-diligence
+      item in the recommendation.
+
+  - source_id: S20
+    category: Electric
+    dataset: Substations and transmission lines
+    provider: HIFLD Open Data
+    portal: https://hifld-geoplatform.hub.arcgis.com/
+    endpoint: null
+    verify_endpoint: true
+    license: Public domain
+    format: geojson
+    target: Substations
+    notes: Context only; optional criterion.
+
+  # ------------------------------------------------------------------ Market
+  - source_id: S21
+    category: Stores
+    dataset: DICK'S / Golf Galaxy / Public Lands / House of Sport locations
+    provider: dicks.com store locator; OpenStreetMap
+    portal: https://stores.dicks.com/
+    endpoint: null
+    verify_endpoint: true
+    license: Public web content - compiled for academic/portfolio analysis
+    format: derived
+    target: Stores_DSG
+    method: locator_then_osm_validate      # [DECISION] scope 2.2 option 1, validated against option 2
+    geocoder: census                        # Census Geocoder (free); ArcGIS World Geocoding as fallback
+    min_geocode_score: 90
+    notes: >-
+      Snapshot the store list with its capture date and record the count. Re-run
+      BuildODMatrices if the list is refreshed.
+
+  - source_id: S22
+    category: Industrial market context
+    dataset: NCTCOG regional land use and industrial submarkets
+    provider: North Central Texas Council of Governments
+    portal: https://data-nctcoggis.opendata.arcgis.com/
+    endpoint: null
+    verify_endpoint: true
+    license: Open data
+    format: geojson
+    target: null
+    notes: Context maps only.
+
+  - source_id: S23
+    category: Commercial (optional)
+    dataset: Lightcast occupation and industry staffing patterns
+    provider: Lightcast
+    portal: https://lightcast.io/
+    endpoint: null
+    verify_endpoint: true
+    license: Commercial - trial access only
+    format: csv
+    target: null
+    enabled: false
+    notes: >-
+      Enhancement for optional criterion C12. If unavailable, note in the report
+      that C01-C03 are the open-data equivalent of a commercial labor-analytics
+      product.

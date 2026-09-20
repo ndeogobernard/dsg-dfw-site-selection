@@ -1,0 +1,67 @@
+# =============================================================================
+# Phase A - candidate screening thresholds (scope Section 5.1, Appendix B).
+# Every value here is a [parameter] in the scope and is echoed into
+# ScoreRuns.parameters_json so any run can be reconstructed exactly.
+# =============================================================================
+
+# --- Appendix B defaults (do not edit casually; add a variant below instead) ---
+min_acres: 80
+max_parcels_per_assemblage: 6
+allow_agricultural_near_industrial_miles: 1.0
+max_sfha_pct: 20
+max_floodway_pct: 0
+max_wetland_pct: 10
+max_mean_slope_pct: 5
+max_developed_pct: 30
+require_water_ccn: true
+require_sewer_ccn_or_within_miles: 1.0
+max_truck_min_to_interchange: 15
+
+# --- Assemblage construction (5.1 step 1) ---
+assemblage:
+  # [DECISION] owner-based vs zoning-based dissolve. Default: owner, falling back
+  # to zoning_class where owner_name is null or generic. Recorded in
+  # ParcelAssemblages.method and in the methodology report.
+  method: owner
+  fallback_method: zoning
+  require_contiguity: true
+  manual_review_acres_over: 300
+
+# --- Zoning eligibility (5.1 step 2) ---
+zoning:
+  eligible_classes:
+    - HeavyIndustrial
+    - LightIndustrial
+    - PlannedIndustrial
+  # Agricultural land within N miles of existing industrial zoning is retained as
+  # rezonable greenfield.
+  agricultural_rezonable: true
+  # Where no municipal zoning layer exists (unincorporated or non-publishing
+  # city), fall back to parcel land-use code + NLCD. Flagged for review rather
+  # than silently passed or failed. See scope Section 14, parcel-data risk.
+  fallback_to_land_use: true
+  fallback_screen_status: Review
+
+# --- NLCD classes counted as "already built out" (5.1 max_developed_pct) ---
+nlcd_developed_classes: [23, 24]      # 23 = Developed Medium, 24 = Developed High
+
+# --- SFHA zones counted toward max_sfha_pct ---
+sfha_zones: [A, AE, AH, AO]
+
+# --- Auto-relaxation ladder (5.1 step 3) -------------------------------------
+# The scope requires 60-200 Pass candidates. If the first pass falls outside
+# that band the tool re-runs with the adjusted parameter and records the final
+# values used.
+candidate_band:
+  min: 60
+  max: 200
+  if_below_min:
+    min_acres: 70
+  if_above_max:
+    max_truck_min_to_interchange: 10
+  max_iterations: 3
+
+# --- Threshold sensitivity sweep (5.6 item 3) --------------------------------
+threshold_sensitivity:
+  min_acres: [70, 80, 100]
+  max_truck_min_to_interchange: [10, 15, 20]

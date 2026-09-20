@@ -1,0 +1,51 @@
+# --- Data and geodatabases (scope 6.2: data/ and the GDB are not in git) -----
+data/
+*.gdb/
+*.sde
+*.lock
+outputs/backups/
+outputs/logs/
+*.log
+
+# Large or regenerable outputs. Final maps for the portfolio are committed
+# deliberately; delete the two negations below to exclude them entirely.
+outputs/maps/*
+outputs/map_series/*
+outputs/tables/*
+!outputs/maps/.gitkeep
+!outputs/map_series/.gitkeep
+!outputs/tables/.gitkeep
+
+# --- ArcGIS ------------------------------------------------------------------
+*.aprx.bak
+*.pyt.bak
+Index/
+*.atbx.lock
+scratch.gdb/
+# Pro writes a metadata sidecar next to the toolbox; keep the real one only
+*.pyt.tmp
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+env/
+
+# --- Notebooks ---------------------------------------------------------------
+.ipynb_checkpoints/
+
+# --- Secrets (scope 6.5: no credentials in the repo) -------------------------
+.env
+*.secret
+credentials.json
+
+# --- OS / editor -------------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

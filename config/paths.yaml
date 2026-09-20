@@ -1,0 +1,31 @@
+# =============================================================================
+# Filesystem layout.
+#
+# The repository is kept small and portable; bulk data and the geodatabase live
+# outside it on a local drive. Scope 6.2 gitignores data/ and the GDB anyway, so
+# relocating them off the user profile costs nothing and keeps heavy
+# geoprocessing I/O away from any synced or redirected folder.
+#
+# Every path below may be overridden by an environment variable of the same name
+# in upper case with a DSG_ prefix, e.g. DSG_DATA_ROOT.
+# =============================================================================
+
+data_root:      "C:/GIS/dsg-dfw/data"
+raw_dir:        "C:/GIS/dsg-dfw/data/raw"
+interim_dir:    "C:/GIS/dsg-dfw/data/interim"
+gdb_dir:        "C:/GIS/dsg-dfw/data/gdb"
+
+gdb:            "C:/GIS/dsg-dfw/data/gdb/DFW_DSG_SiteSelection.gdb"
+gdb_raw:        "C:/GIS/dsg-dfw/data/gdb/DFW_DSG_Raw.gdb"
+scratch_gdb:    "C:/GIS/dsg-dfw/data/gdb/scratch.gdb"
+
+# Repo-relative (resolved against the repository root at runtime)
+outputs_dir:    "outputs"
+maps_dir:       "outputs/maps"
+map_series_dir: "outputs/map_series"
+tables_dir:     "outputs/tables"
+backups_dir:    "outputs/backups"
+logs_dir:       "outputs/logs"
+docs_dir:       "docs"
+figures_dir:    "docs/figures"
+layouts_dir:    "layouts"

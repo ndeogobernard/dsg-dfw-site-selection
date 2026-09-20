@@ -1,0 +1,118 @@
+# =============================================================================
+# Network dataset build + solver settings (scope Sections 4.6 and 5.2).
+# Consumed by BuildNetworkDataset, BuildServiceAreas, BuildODMatrices.
+# =============================================================================
+
+build:
+  source_priority: [S03, S04]     # TxDOT RHiNo primary, OSM gap-fill/alternate
+  # [DECISION] record which source actually produced the delivered network in
+  # ScoreRuns.parameters_json and in the methodology report, Section 7.
+  nd_name: RoadNetwork_ND
+  dataset: Transportation
+  connectivity: END_POINT
+  elevation: NONE                 # RHiNo has no reliable z-level field
+  build_after_create: true
+
+# --- Cost and restriction attributes ---
+attributes:
+  - name: Miles
+    usage: Cost
+    units: Miles
+    field: miles
+
+  - name: Minutes
+    usage: Cost
+    units: Minutes
+    field: minutes                # miles / speed_mph * 60, calculated at ingest
+
+  - name: Oneway
+    usage: Restriction
+    field: oneway
+    # RHiNo/OSM convention: FT = with digitized direction, TF = against, blank = both
+
+  - name: TruckRestricted
+    usage: Restriction
+    field: truck_restrict
+    # Populated from explicit truck-prohibition attributes where published;
+    # otherwise by the functional-class rule below.
+
+# --- Fallback rule when explicit truck restrictions are absent (scope 4.6) ---
+truck_restriction_rule:
+  # Local/residential functional classes are treated as truck-restricted.
+  # FHWA functional class codes: 1 Interstate, 2 Other Freeway/Expressway,
+  # 3 Other Principal Arterial, 4 Minor Arterial, 5 Major Collector,
+  # 6 Minor Collector, 7 Local.
+  restricted_func_classes: [7]
+  note: >-
+    Conservative. Restricting minor collectors as well was tested and removed
+    because it disconnected several rural candidate parcels from the network.
+
+# --- Speed defaults by functional class, used where posted speed is null ---
+default_speeds_mph:
+  1: 70
+  2: 65
+  3: 55
+  4: 45
+  5: 45
+  6: 35
+  7: 30
+
+travel_modes:
+
+  Driving:
+    impedance: Minutes
+    time_attribute: Minutes
+    distance_attribute: Miles
+    restrictions: [Oneway]
+    uturn_policy: ALLOW_UTURNS
+    speed_source: posted_then_default
+
+  Truck:
+    impedance: Minutes
+    time_attribute: Minutes
+    distance_attribute: Miles
+    restrictions: [Oneway, TruckRestricted]
+    uturn_policy: NO_UTURNS
+    speed_source: posted_then_default
+    # Scope 4.6: truck speeds capped below general traffic.
+    speed_caps_mph:
+      freeway: 65       # func_class 1-2
+      arterial: 45      # func_class 3-4
+      local: 25         # func_class 5-7
+
+# --- Solver settings (scope 5.2) ---
+service_areas:
+  Driving:
+    breaks_min: [15, 30, 45]
+    polygon_detail: STANDARD
+    geometry_at_overlaps: DISSOLVE
+    polygon_trim_distance: "100 Feet"
+  Truck:
+    breaks_min: [60, 120, 240]
+    polygon_detail: GENERALIZED     # coarse detail is adequate at 4-hour reach
+    geometry_at_overlaps: DISSOLVE
+    polygon_trim_distance: "500 Feet"
+  batch_size: 50                    # facilities per solve, for memory control
+  resume: true
+
+od_matrices:
+  stores:
+    mode: Truck
+    cutoff_min: 600                 # 10-hour single-driver day (scope 2.2)
+    destination_count: null         # all pairs
+  interchanges:
+    mode: Truck
+    cutoff_min: 60
+    destination_count: 1
+  intermodal:
+    mode: Truck
+    cutoff_min: 240
+    destination_count: 1
+  batch_size: 50
+
+# --- Validation (scope Section 10, network connectivity check) ---
+validation:
+  random_od_pairs: 100
+  required_solve_rate: 1.0
+  agol_route_comparison_samples: 20
+  agol_acceptable_pct_diff: 15

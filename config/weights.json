@@ -1,0 +1,47 @@
+{
+  "_comment": "Scope Section 5.5 / Appendix C. Weights must sum to 1.00 per scenario; enforced by tests/test_scoring.py and by the QA/QC check 'weights sum to 1.00'.",
+  "_scenarios": {
+    "Balanced": "Client's stated priorities: workforce and store-network proximity, without over-committing to either.",
+    "LaborFirst": "Tests the 'qualified and reliable workforce' priority as dominant.",
+    "AccessFirst": "Tests store-network proximity and freight access as dominant."
+  },
+  "Balanced": {
+    "C01": 0.20,
+    "C02": 0.05,
+    "C03": 0.10,
+    "C04": 0.12,
+    "C05": 0.18,
+    "C06": 0.08,
+    "C07": 0.05,
+    "C08": 0.03,
+    "C09": 0.05,
+    "C10": 0.07,
+    "C11": 0.07
+  },
+  "LaborFirst": {
+    "C01": 0.30,
+    "C02": 0.08,
+    "C03": 0.15,
+    "C04": 0.08,
+    "C05": 0.12,
+    "C06": 0.05,
+    "C07": 0.04,
+    "C08": 0.02,
+    "C09": 0.04,
+    "C10": 0.06,
+    "C11": 0.06
+  },
+  "AccessFirst": {
+    "C01": 0.12,
+    "C02": 0.03,
+    "C03": 0.05,
+    "C04": 0.18,
+    "C05": 0.28,
+    "C06": 0.12,
+    "C07": 0.04,
+    "C08": 0.02,
+    "C09": 0.04,
+    "C10": 0.05,
+    "C11": 0.07
+  }
+}

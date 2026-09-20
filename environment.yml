@@ -1,0 +1,39 @@
+# =============================================================================
+# Two environments are involved in this project.
+#
+# 1. PRODUCTION (arcpy required) - everything that touches the geodatabase,
+#    the network dataset, or map exports.
+#
+#      conda create --clone arcgispro-py3 --name dsg-dfw
+#      conda activate dsg-dfw
+#      conda install -c conda-forge geopandas shapely pyogrio
+#
+#    arcpy is licensed through ArcGIS Pro and cannot be installed from a YAML
+#    file, so the production environment must be cloned rather than created
+#    from this spec. The stock arcgispro-py3 environment is read-only, which
+#    is why the clone is necessary before adding anything to it.
+#
+# 2. CI (no arcpy) - the environment below. It runs the scoring, screening,
+#    and schema-integrity tests that are written to be arcpy-free (scope 6.5),
+#    which is what GitHub Actions executes on push.
+# =============================================================================
+
+name: dsg-dfw-ci
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.11
+  - pandas>=2.0
+  - numpy>=1.24
+  - pyyaml>=6.0
+  - requests>=2.31
+  - matplotlib>=3.8
+  - openpyxl>=3.1
+  - pytest>=7.4
+  - pytest-cov
+  # Non-arcpy ETL and geometry, used by src/li/etl.py for source preparation
+  - geopandas>=0.14
+  - shapely>=2.0
+  - pyogrio>=0.7
