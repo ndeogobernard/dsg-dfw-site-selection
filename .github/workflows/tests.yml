@@ -1,0 +1,45 @@
+name: Tests
+
+# Scope 6.5: "run pytest in CI (GitHub Actions on push, non-arcpy tests only)".
+#
+# arcpy is licensed through ArcGIS Pro and cannot be installed on a hosted
+# runner, so src/li is written so that everything except the geodatabase
+# construction itself imports and runs without it. li/gdb.py guards its arcpy
+# import and raises only when a build function is actually called, which lets
+# the schema-integrity suite run here in full.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml
+
+      - name: Confirm arcpy is absent
+        # The suite is meant to prove it does not need arcpy. If arcpy ever
+        # became importable here the guarantee would silently lapse.
+        run: |
+          python - <<'PY'
+          import importlib.util, sys
+          if importlib.util.find_spec("arcpy") is not None:
+              sys.exit("arcpy is importable on the runner - the arcpy-free guarantee is void")
+          print("arcpy absent, as expected")
+          PY
+
+      - name: Run schema and configuration integrity tests
+        run: python -m pytest tests/ -v --tb=short
