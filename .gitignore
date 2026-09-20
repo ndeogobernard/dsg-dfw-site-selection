@@ -1,6 +1,10 @@
 # --- Data and geodatabases (scope 6.2: data/ and the GDB are not in git) -----
+data/raw/
+data/gdb/
+data/interim/
 data/
 *.gdb/
+*.gdb.zip
 *.sde
 *.lock
 outputs/backups/
