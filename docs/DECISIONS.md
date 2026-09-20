@@ -191,3 +191,68 @@ recording the commit hash of the run that did so.
 
 **Alternatives.** Omit it — keeps the study purely prospective and avoids any suggestion of
 tuning toward a known answer. Defensible, but leaves clear evidential value unused.
+
+---
+
+> **Numbering note.** D-008 and D-009 are reserved for the two reconnaissance decisions (C10
+> land-cost path; zoning strategy) and are appended after this entry, since the reconnaissance
+> ran after the Pro project was stood up. The log is append-only, so entries sit in the order
+> they were written rather than in numeric order.
+
+---
+
+## D-010 · Versioning the ArcGIS Pro project (`.aprx`) in git
+
+- **Date raised:** 2026-09-19
+- **Status:** `DECIDED`
+- **Scope ref:** §6.2 (repository layout), §7 (visualization deliverables)
+
+**Decision.** Commit `pro/DFW_DSG.aprx` and `pro/DFW_DSG.atbx` to the repository as periodic
+snapshots, with **store relative paths to data sources enabled**, and treat the project as
+**regenerable** from `tools/setup_pro_project.py` rather than as hand-built state.
+
+**Rationale.**
+
+An `.aprx` is a **binary** artifact — a zip containing CIM JSON — with three consequences that
+shape how it must be handled:
+
+1. **No meaningful diff.** `git diff` on an `.aprx` is noise. A reviewer cannot see what changed
+   between two commits, so the commit message has to carry that information.
+2. **No merge.** Two people editing the project on separate branches produce a conflict git
+   cannot resolve. Whichever side is not chosen loses its work entirely. Only one person edits
+   the project at a time, and the commit says what changed.
+3. **It stores paths, not data.** The project references the geodatabase; it does not contain
+   it. A fresh clone therefore has a project whose layers point at a geodatabase that does not
+   exist yet, which is why the README states plainly that **BuildGeodatabaseSchema must run
+   first**.
+
+Relative paths are enabled so the repo survives being cloned to a different machine or folder.
+Verified in the saved file: `"pathSaveRelative": true`, with the default toolbox stored as
+`.\DFW_DSG.atbx` and the Python toolbox as `..\toolbox\LocationIntelligence.pyt`.
+
+**Known limitation, accepted.** The geodatabase is stored as an **absolute** path
+(`C:\GIS\dsg-dfw\data\gdb\DFW_DSG_SiteSelection.gdb`) because it lives outside the repository
+tree by design — bulk data is kept off the user-profile folder. Relative-path storage cannot
+help across unrelated roots. Anyone cloning this repo to a different layout must either
+reproduce the `config/paths.yaml` locations, set `DSG_GDB`, or re-run
+`tools/setup_pro_project.py --force`, which rewrites the project from local config. The
+regeneration script is what makes this acceptable rather than a trap.
+
+**Implementation notes worth keeping.** `arcpy.mp.ArcGISProject` opens an existing project; it
+cannot create one. The project is therefore seeded from the blank `.aprx` that Pro ships at
+`Resources\ArcToolBox\Services\routingservices\data\Blank.aprx`. That template references a
+`Blank.atbx` and `Blank.gdb` that are **not** shipped beside it, so both entries are replaced
+rather than inherited. A project must have a valid default toolbox — `updateToolboxes` raises
+*"No valid default toolbox was set"* otherwise — and Pro 3.5's arcpy has no `CreateToolbox`
+tool, so `tools/setup_pro_project.py` writes an empty `.atbx` directly (it is a zip holding a
+`toolbox.content` manifest and a `toolbox.content.rc` string table).
+
+**Alternatives considered.**
+
+- *Gitignore the `.aprx` entirely and rebuild it every time.* Cleanest history, but the project
+  will eventually hold layouts, symbology, and a network dataset that are genuinely authored by
+  hand in Pro and cannot be scripted faithfully. Losing those is worse than carrying a binary.
+- *Store only a `.aprx`-adjacent export (map files / `.lyrx` / `.pagx`).* Diffable and worth
+  doing **in addition** once layouts exist — §7.1 already calls for `layouts/LI_Template.pagx`.
+  It is not a substitute, because no export round-trips a whole project.
+- *Git LFS.* Overkill at ~9 KB. Revisit only if the project grows large enough to bloat clones.

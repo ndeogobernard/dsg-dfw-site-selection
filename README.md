@@ -134,6 +134,23 @@ python -c "import sys; sys.path.insert(0,'src'); from li import gdb; gdb.build_s
 Or open `toolbox/LocationIntelligence.pyt` in ArcGIS Pro and run **1 – Build Geodatabase Schema**.
 A full build takes roughly 3–4 minutes; most of it is adding GlobalIDs and attribute rules.
 
+### Open the ArcGIS Pro project
+
+`pro/DFW_DSG.aprx` is the project used for the network dataset, symbology, layouts, and map
+exports. It comes wired to the geodatabase and to `toolbox/LocationIntelligence.pyt`, with
+**store relative paths to data sources** enabled.
+
+> **Build the geodatabase first.** The project's default geodatabase points at
+> `DFW_DSG_SiteSelection.gdb` as configured in `config/paths.yaml`. If that geodatabase has not
+> been created by **BuildGeodatabaseSchema**, the project still opens, but its default
+> geodatabase and any layers drawn from it will not resolve.
+
+To recreate the project from scratch — it is regenerable, not hand-built:
+
+```bash
+python tools/setup_pro_project.py --force
+```
+
 ### Run the tests
 
 ```bash
@@ -152,8 +169,10 @@ errors that would otherwise surface minutes into a geodatabase build.
 ```
 config/       schema, sources, screening thresholds, network settings, criteria, weights
 toolbox/      LocationIntelligence.pyt + ModelBuilder models
+pro/          DFW_DSG.aprx — ArcGIS Pro project (network dataset, symbology, layouts)
 src/li/       importable package (all real logic lives here)
 tests/        arcpy-free unit tests, run in CI
+tools/        repo utilities (Pro project setup, portfolio placeholders)
 docs/         ERD, data dictionary, design rationale, methodology report
 notebooks/    exploration and results review
 outputs/      maps, map series, tables, logs
