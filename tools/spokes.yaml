@@ -1,0 +1,111 @@
+# =============================================================================
+# Spoke repository sync manifest.
+#
+# The hub (this repo) is authoritative. Each spoke is a curated extract of hub
+# files, republished as a focused standalone repository. This file is the
+# single source of truth for WHICH hub files feed WHICH spoke, so a re-sync is
+# deterministic rather than remembered.
+#
+# Consumed by tools/sync_spokes.py. See docs/SYNC_MANIFEST.md for the rationale
+# and D-012 for the decision.
+#
+# `from` is relative to the hub root; `to` is relative to the spoke root.
+# A trailing `/` on both means "copy the directory contents".
+# =============================================================================
+
+spokes:
+
+  # ---------------------------------------------------------------------
+  - name: config-driven-geodatabase-schema-builder
+    kind: tool
+    description: >-
+      Config-driven ArcGIS file-geodatabase schema generator - build feature
+      datasets, domains, subtypes, relationship classes, topology and attribute
+      rules from a single YAML file.
+    files:
+      - {from: config/schema.yaml,        to: config/schema.yaml}
+      - {from: config/criteria.yaml,      to: config/criteria.yaml}
+      - {from: config/weights.json,       to: config/weights.json}
+      - {from: config/sources.yaml,       to: config/sources.yaml}
+      - {from: config/paths.yaml,         to: config/paths.yaml}
+      - {from: src/li/__init__.py,        to: src/li/__init__.py}
+      - {from: src/li/config.py,          to: src/li/config.py}
+      - {from: src/li/logging_utils.py,   to: src/li/logging_utils.py}
+      - {from: src/li/gdb.py,             to: src/li/gdb.py}
+      - {from: tests/test_schema.py,      to: tests/test_schema.py}
+      - {from: LICENSE,                   to: LICENSE}
+    # Pending in the hub; synced once they exist (see D-012, ERD note).
+    pending:
+      - docs/ERD.png
+      - docs/ERD.drawio
+      - docs/DataDictionary.md
+      - docs/GDB_DesignRationale.md
+      - docker/postgis/   # optional stretch, scope 4.1
+
+  # ---------------------------------------------------------------------
+  - name: arcgis-location-intelligence-toolbox
+    kind: tool
+    description: >-
+      Location-intelligence ArcGIS Python toolbox - a config-driven, testable
+      .pyt running a multi-criteria site-selection pipeline end to end.
+    files:
+      - {from: toolbox/LocationIntelligence.pyt, to: toolbox/LocationIntelligence.pyt}
+      - {from: toolbox/LocationIntelligence.pyt.xml, to: toolbox/LocationIntelligence.pyt.xml}
+      - {from: "toolbox/LocationIntelligence.BuildGeodatabaseSchema.pyt.xml",
+         to: "toolbox/LocationIntelligence.BuildGeodatabaseSchema.pyt.xml"}
+      - {from: config/schema.yaml,        to: config/schema.yaml}
+      - {from: config/criteria.yaml,      to: config/criteria.yaml}
+      - {from: config/weights.json,       to: config/weights.json}
+      - {from: config/screening.yaml,     to: config/screening.yaml}
+      - {from: config/network.yaml,       to: config/network.yaml}
+      - {from: config/sources.yaml,       to: config/sources.yaml}
+      - {from: config/paths.yaml,         to: config/paths.yaml}
+      - {from: src/li/__init__.py,        to: src/li/__init__.py}
+      - {from: src/li/config.py,          to: src/li/config.py}
+      - {from: src/li/logging_utils.py,   to: src/li/logging_utils.py}
+      - {from: src/li/gdb.py,             to: src/li/gdb.py}
+      - {from: tests/test_schema.py,      to: tests/test_schema.py}
+      - {from: LICENSE,                   to: LICENSE}
+    pending:
+      - toolbox/models/LocationIntelligence_Models.tbx   # scope 6.4
+      - src/li/etl.py
+      - src/li/qaqc.py
+      - src/li/screening.py
+      - src/li/network.py
+      - src/li/workforce.py
+      - src/li/criteria.py
+      - src/li/scoring.py
+      - src/li/sensitivity.py
+      - src/li/export.py
+
+  # ---------------------------------------------------------------------
+  - name: dfw-site-selection-explorer
+    kind: showcase
+    description: >-
+      Interactive ArcGIS Dashboard exploring candidate sites for a DFW regional
+      distribution centre - scenario selector, ranked candidates, indicators and
+      criterion-contribution charts.
+    files:
+      - {from: LICENSE, to: LICENSE}
+    dirs: [scripts, screenshots]
+    # Auto-filled in weeks 6-8 (docs/PLAN.md).
+    pending:
+      - scripts/build_dashboard.py      # 6c, arcgis.apps.dashboard
+      - scripts/publish_layers.py       # 6a, PublishToAGOL
+      - screenshots/                    # once the dashboard exists
+
+  # ---------------------------------------------------------------------
+  - name: dfw-site-selection-cartography
+    kind: showcase
+    description: >-
+      An 18-map analytical series plus criteria and site-profile map series for
+      a DFW regional distribution-centre siting study, built to a single
+      cartographic standard.
+    files:
+      - {from: LICENSE, to: LICENSE}
+    dirs: [layouts, scripts, exports]
+    pending:
+      - layouts/LI_Template.pagx        # scope 7.1
+      - scripts/export_maps.py          # M01-M18
+      - scripts/build_map_series.py     # MS01, MS02
+      - exports/                        # PDF + PNG, once produced
