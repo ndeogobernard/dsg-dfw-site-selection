@@ -183,3 +183,71 @@ labelled INDICATIVE for exactly this reason.
 
 User actions outstanding: Census API key (free, instant); decisions on D-007 (validating
 against the realized siting decision) and D-001–D-006.
+
+---
+
+## 2026-09-19 — Session 3 · Week 6 plan, acquisition playbook, tutorial standard, four spokes
+
+**Commits:** hub `481cfcc`, `131c528`, `e74c9c3`, `b6bfc05`, + this checkpoint ·
+portfolio `9e4b328` · four new spoke repositories.
+
+### What changed
+
+**1 · Week 6 AGOL planned.** New `docs/PLAN.md` tracks the §11 timeline in-repo. Week 6 is
+expanded into **6a** `PublishToAGOL`, **6b** web map via the `arcgis` Python API, **6c**
+dashboard scaffold, **6d** StoryMap draft — with a *checkable* dependency gate: `SiteScores` and
+`Shortlist` populated for all three scenarios, service areas and served stores resolved, maps
+M01–M18 exported. If the gate is not met the right action is to finish Week 5, not publish
+partial results. **6c and 6d are marked "Claude Code scaffolds / Bernard finishes"** — widget and
+narrative structure is scriptable; cross-widget interactivity, mobile layout, and publishing are
+builder-side and human acts. **D-011** logged: default auth is Pro's active portal session, so
+this project stores no credential at all.
+
+**2 · `docs/DATA_ACQUISITION.md`** — the manual playbook, one section per S01–S23. Recon findings
+folded in where they change what someone should *do*: the Tarrant lookalike-layer trap, Dallas's
+20 zoning layers, the Census key requirement, the exact C24010 arithmetic, NFHL's missing
+floodway field. Also created `docs/REPRODUCE.md`, which did not exist.
+
+**3 · Dual-track tutorial standard.** `docs/tutorial/README.md` and `_LESSON_TEMPLATE.md`
+created — **neither existed**, so they were written to spec rather than edited. Every lesson
+carries Track A (automated), Track B (manual in ArcGIS Pro from raw sources), and a *Concepts —
+why this works* section. `CLAUDE.md` Checkpoint now captures both tracks when a phase completes.
+
+**4 · Four spoke repositories published**, all public, all HTTP 200:
+
+| Repo | Files | CI |
+|---|---:|---|
+| `config-driven-geodatabase-schema-builder` | 14 | ✅ 26 tests, 12s |
+| `arcgis-location-intelligence-toolbox` | 19 | ✅ 26 tests, 12s |
+| `dfw-site-selection-explorer` | 5 | — |
+| `dfw-site-selection-cartography` | 6 | — |
+
+Sync is driven by `tools/spokes.yaml` + `tools/sync_spokes.py` rather than by memory: copies
+only what the manifest names, skips identical files, never deletes, and **exits non-zero if an
+entry has vanished from the hub**. Tests were run standalone in both tool spokes *before*
+publishing — 26 passing in each.
+
+**5 · Portfolio cards** now carry both links, hub and spoke (`9e4b328`). The Cartography gallery
+card had no `card-links` block and gained one; `.card-links` already has `position:relative;
+z-index:1`, which is what keeps pills clickable above the card's own map-viewer handler, so no
+CSS was needed. `check_site.py`: 0 errors.
+
+### What was decided
+
+**D-011 (OPEN)** — AGOL authentication. **D-012 (DECIDED)** — hub/spoke strategy.
+
+### Two things worth recording
+
+- **Three files the instructions said to *edit* did not exist** — `docs/tutorial/README.md`,
+  `_LESSON_TEMPLATE.md`, `docs/REPRODUCE.md`. Created to the same spec and flagged rather than
+  silently invented.
+- **A script bug caught by failing safely.** The first card-link script matched
+  `DICK&#39;S` where the cartography card holds a literal apostrophe. It called `sys.exit(1)`
+  *before* writing, so three already-computed edits were discarded and the file was untouched —
+  confirmed by a clean `git status`. Worth keeping: validate-then-write, never write-as-you-go.
+
+### What's next
+
+Unchanged and still blocking: **sign-off on D-008 and D-009**. Then apply the schema changes in
+`docs/recon/RECON_findings.md` §6, rebuild the GDB, re-sync the schema-builder spoke, and build
+tools 2 and 3.

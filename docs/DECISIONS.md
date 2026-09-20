@@ -441,3 +441,85 @@ through Week 6 review and public only in Week 7.
 the single most common way a public portfolio repository leaks a live account. Prompt for a
 password at tool runtime — rejected: it defeats unattended re-runs, and the value then exists in
 process memory and shell history for no benefit over the Pro session.
+
+---
+
+## D-012 · Multi-repository strategy — hub and spokes
+
+- **Date raised:** 2026-09-19
+- **Status:** `DECIDED`
+- **Scope ref:** §6.2 (repository layout), §12 (deliverables — flagship + standalone GDB project)
+- **Manifest:** `tools/spokes.yaml` · **Rationale:** `docs/SYNC_MANIFEST.md`
+
+**Decision.** This repository is the **hub** and remains authoritative. Four **spoke**
+repositories republish curated extracts of it as focused standalone public projects:
+
+| Spoke | Kind | Why it stands alone |
+|---|---|---|
+| `config-driven-geodatabase-schema-builder` | tool | Generic — reads any schema YAML, not just this study's |
+| `arcgis-location-intelligence-toolbox` | tool | A reusable `.pyt` and its testable package |
+| `dfw-site-selection-explorer` | showcase | The dashboard as its own artifact |
+| `dfw-site-selection-cartography` | showcase | The map series as its own artifact |
+
+**Rationale.** Scope §12 already asks for two deliverables — the flagship study *and* a
+standalone geodatabase-design project — so the work is not one indivisible thing. Two further
+components are independently useful: the toolbox is a reusable tool regardless of client, and
+the dashboard and map series are self-contained artifacts a reader may want to look at without
+reading a 653-line scope document.
+
+The practical argument is discoverability. Someone searching for "ArcGIS geodatabase schema
+YAML" will not find it buried in a distribution-centre siting repository. Someone assessing
+cartographic skill should not have to clone an analysis pipeline to see maps.
+
+**Hub authoritative, one direction of travel.** Hub → spoke, never the reverse. A file listed in
+`tools/spokes.yaml` is owned by the hub; editing it in a spoke means the next sync silently
+overwrites it. Files a spoke owns outright — README, CI, `.gitignore` — are deliberately not in
+the manifest and are never touched.
+
+**Sync is deterministic, not remembered.** `tools/sync_spokes.py` copies only what the manifest
+names, skips identical files, never deletes, and **exits non-zero if a manifest entry no longer
+exists in the hub** — so a rename here surfaces immediately instead of quietly dropping a file
+from a spoke. Re-sync is part of the Checkpoint protocol.
+
+**Accepted trade-off — code duplication.** Both tool spokes carry `src/li/config.py`,
+`logging_utils.py`, and `gdb.py`, plus overlapping config files. A change to `gdb.py` must reach
+two places.
+
+This is deliberate. The alternatives — a shared package on PyPI, or git submodules — would stop
+each spoke standing alone. A reader landing on the schema builder from a portfolio link should
+be able to clone it and run the tests immediately, not discover it is a shell around a
+dependency they must also install. **For a portfolio, a repository that cannot be run on its own
+has failed at its only job.** The manifest and script reduce the cost to one command; publishing
+a broken standalone repo has no such remedy.
+
+Duplication is also bounded: four modules and six config files, not a library.
+
+**Honest cross-linking, no disguising.** Every spoke README ends with:
+
+> A component of [dsg-dfw-site-selection](https://github.com/ndeogobernard/dsg-dfw-site-selection),
+> a DFW regional-DC site-selection system.
+
+The spokes are presented as components of one system, extracted because they are independently
+useful. Padding a portfolio with repositories pretending to be unrelated projects is
+transparent to any reviewer who looks at commit dates, and it would be dishonest. The portfolio
+cards carry **both** links — hub and spoke — for the same reason.
+
+The showcase spokes are marked **In progress** rather than implying finished work, and their
+READMEs state plainly which items do not exist yet.
+
+**Known consequence.** `config-driven-geodatabase-schema-builder` is currently short its ERD,
+data dictionary, and design-rationale write-up. Those are deferred because acceptance criterion
+§13.5 requires them to match the delivered schema *exactly*, and the schema changes once D-008
+and D-009 are settled. **That spoke re-syncs after recon reconciles `config/schema.yaml`** —
+publishing documentation that is about to be wrong would be worse than publishing none.
+
+**Alternatives considered.**
+
+- *One repository only.* Simplest and most honest by default, but buries four independently
+  useful components and fails the discoverability argument above.
+- *Spokes as git submodules of the hub.* No duplication, but submodules are a well-known
+  usability tax and a spoke would no longer clone-and-run.
+- *Shared internal package published to PyPI.* Correct for a product; disproportionate for a
+  portfolio project, and it makes every spoke depend on a package index.
+- *Copy files by hand at each milestone.* What the manifest exists to prevent. It drifts within
+  weeks and nobody can tell which copy is current.
