@@ -382,3 +382,62 @@ weight adjustment. `config/screening.yaml` already has `zoning.fallback_to_land_
 - *Use NCTCOG regional land use (S22) as the zoning proxy.* Worth testing as the `Inferred`
   tier's evidence base — it is regional and consistent, though land use is not zoning and
   cannot speak to entitlement. Recommend evaluating it when implementing tier 2.
+
+---
+
+## D-011 · AGOL authentication method
+
+- **Date raised:** 2026-09-19
+- **Status:** `OPEN`
+- **Scope ref:** §6.3 tool 13 `PublishToAGOL`, §6.5 (secrets), §7.4 (dashboard), §8 (StoryMap)
+- **Plan ref:** `docs/PLAN.md` Week 6
+
+**Question.** How does `PublishToAGOL` — and the Week 6 web map, dashboard, and StoryMap
+scaffolding — authenticate to ArcGIS Online?
+
+**Hard rule, not negotiable.** **No secrets in chat and no secrets in committed files.** No
+username, password, token, API key, client secret, or `.env` file containing any of them goes
+into this repository, a commit message, a config file, a notebook, a log, or a conversation.
+Scope §6.5 states it and it is restated here because Week 6 is the first point where it becomes
+tempting to shortcut.
+
+If a credential is ever pasted somewhere it should not be, treat it as compromised: rotate it
+first, then clean up.
+
+**Default — publish through ArcGIS Pro's active portal session.**
+
+`arcpy.sharing` uses the portal connection that ArcGIS Pro is already signed in to. The analyst
+signs in once, in Pro's UI; the tool inherits that session. Nothing is stored by this project,
+nothing is passed as a parameter, and there is nothing to leak. This is the method scope §6.3
+assumes for tool 13, and it is the default for all Week 6 publishing.
+
+Consequence, accepted: publishing requires an interactive, signed-in ArcGIS Pro. That is
+appropriate — publishing is a deliberate act with a real-world effect, not something a
+background job should do unattended.
+
+**Fallback — for standalone or CI publishing, if it is ever needed.**
+
+Only if publishing must run outside a signed-in Pro session:
+
+1. **A named GIS profile** (preferred). `GIS(profile="dsg_dfw_agol")` — the `arcgis` Python API
+   stores the credential in the OS keystore, outside the repository, created once on the local
+   machine. Code references the profile *name* only, which is safe to commit.
+2. **Environment variables** set on the local machine — `AGOL_URL`, `AGOL_USER`, `AGOL_PASSWORD`
+   — read at runtime, never written to disk by this project and never echoed into logs.
+
+Either way the repository contains a *reference*, never a value.
+
+**Not planned, and would need their own decision:** OAuth app credentials (client id/secret),
+and publishing from GitHub Actions via repository secrets. Neither is required — the CI here
+runs arcpy-free tests and has no reason to touch a portal. Adding portal access to CI would
+create a credential with publish rights sitting in a third-party system, for no gain.
+
+**Remaining to close.** Confirm which ArcGIS Online organisation is the publishing target and
+whether that account has publisher privileges and sufficient credits; confirm Pro is signed in
+to that same portal; decide the sharing level at each stage — the plan assumes **unlisted**
+through Week 6 review and public only in Week 7.
+
+**Alternatives considered.** Hard-code credentials in a config file — rejected outright; it is
+the single most common way a public portfolio repository leaks a live account. Prompt for a
+password at tool runtime — rejected: it defeats unattended re-runs, and the value then exists in
+process memory and shell history for no benefit over the Pro session.
