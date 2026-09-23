@@ -251,3 +251,79 @@ CSS was needed. `check_site.py`: 0 errors.
 Unchanged and still blocking: **sign-off on D-008 and D-009**. Then apply the schema changes in
 `docs/recon/RECON_findings.md` §6, rebuild the GDB, re-sync the schema-builder spoke, and build
 tools 2 and 3.
+
+---
+
+## 2026-09-22/23 — Session 4 · Schema reconciled, tools 2–3 built, Tarrant pilot loaded
+
+**Commits:** `384e228`, `1045e72`, `915b695`, `dbda2e7`, `abe1fa4`, + this checkpoint.
+Both tool spokes re-synced and pushed.
+
+### What changed
+
+**1 · Schema reconciled and rebuilt** (D-008, D-009, D-013). `acres_published` beside
+geometry-derived `acres` with a `calc_Parcel_AcresDelta` rule recording the disagreement;
+`land_val_flag` so a zero value is never read as free land; `dm_ZoningConfidence` and
+`zoning_confidence`; screening stripped of every industrial-zoning requirement; **C12** added
+for the zoning/entitlement signal with its weight **carved out of C11** so each scenario still
+sums to exactly 1.00; `Parcels` subtypes rekeyed onto `zoning_conf_st`. C01 pinned to the four
+C24010 lines that exclude production workers. Rebuilt clean: 12 domains, 6 attribute rules,
+24 criterion columns.
+
+**2 · Tools 2 and 3.** `src/li/etl.py` and `src/li/qaqc.py`, both keeping decisions in pure
+arcpy-free functions. Tool 2 refuses any county not marked `verified`, checks the feature count
+so a lookalike layer cannot be ingested, and writes provenance every run.
+
+**3 · All 10 remaining CADs probed, none ingested.**
+
+**4 · Tarrant pilot: 758,633 / 758,633 loaded, 10 Pass / 1 Warning / 0 Fail**, 93 minutes.
+
+### What was decided
+
+**D-008-R** and **D-009-R** record the accepted implementations; **D-013** covers physical-only
+screening and the subtype rekey; **D-014** is new and OPEN.
+
+### Three things the work caught that assumptions had not
+
+**The QA check caught a wrong primary key — before it could do damage.** The 3-page smoke test
+failed `ING-DUP-KEY` with 15 duplicates in 3,000 rows. Verified over 20,000 records: `ACCOUNT`
+is 100% unique, `TAXPIN` only 98.44%. TAXPIN identifies the survey *abstract tract*; `A1614-1C`
+carries eight separately-appraised accounts. The recon note said "TAXPIN is the GIS key,
+ACCOUNT the tax key" and I chose the GIS-sounding one without ever checking uniqueness. Had
+that check been a warning instead of a hard failure, assemblage logic would later have merged
+unrelated parcels sharing a tract, and the map would have looked entirely plausible.
+
+**D-008 did not generalise.** Dallas `CurrentDcadParcels` publishes 695,446 features with five
+fields — geometry, an account number, an acreage. No land value, no owner, no zoning. C10
+cannot be computed for the second-largest county in the study area from the parcel layer alone.
+D-008's "no roll join needed" held only because Tarrant happened to be probed first. Recorded
+as **D-014**, OPEN, rather than patched over.
+
+**A quarter of Tarrant parcels disagree with their own geometry on acreage.** 191,192 parcels
+(25.20%) differ by more than 5% between CAD-published and geometry-derived acres. D-008 screens
+on the published figure and that remains right — it is what a broker would quote — but this is
+a methodology-report fact, not a log line.
+
+### Cross-checks that held
+
+`acres_published >= 80` returns **884** parcels, matching the server-side recon count exactly.
+Zero land value came in at **8.54%**, against 8.5% measured in recon. Two independent routes to
+the same numbers.
+
+### Also worth recording
+
+- Smoke-testing with `--max-pages 3` cost 36 seconds and found the key bug. The full run is 93
+  minutes.
+- A feature class with attribute rules cannot be written outside an edit session; the session
+  is also what makes the rules fire, so `acres` and `land_val_per_acre` are populated by it.
+- `JSONToFeatures` overhead meant 759 per-page calls would have dominated the ingest;
+  concatenating to 16 files fixed it.
+- I pushed the schema-builder spoke with a red CI because I ran its tests and the push in the
+  same command, so the failure could not block. The manifest was missing `screening.yaml`.
+  Fixed, and spoke tests now run *before* the push. The red run stays in that repo's history.
+
+### What's next
+
+Tarrant is viewable in `pro/DFW_DSG.aprx`. Stopped for review before touching the other ten.
+**D-014** decides whether Dallas can be scored at all. The ERD and data dictionary are now
+unblocked — the schema has met real data.

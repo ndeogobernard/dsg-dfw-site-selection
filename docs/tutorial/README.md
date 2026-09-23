@@ -59,7 +59,7 @@ plausible-looking steps.
 | 01 | Designing the geodatabase schema | §4 / W2 | ◻ |
 | 02 | Building the schema from config | §4 / W2 | ◻ |
 | 03 | Acquiring the data | §3 / W1 | ◻ |
-| 04 | Ingest, standardization, and QA/QC | §6.3 / W3 | ◻ |
+| 04 | [Ingest, standardization, and QA/QC](04-ingest-and-qaqc.md) | §6.3 / W3 | 🔄 |
 | 05 | Building the network dataset | §4.6 / W4 | ◻ |
 | 06 | Screening candidate sites | §5.1 / W4 | ◻ |
 | 07 | Service areas and OD matrices | §5.2 / W5 | ◻ |
