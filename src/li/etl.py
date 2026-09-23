@@ -32,9 +32,11 @@ except ImportError:  # pragma: no cover
 
 log = logging.getLogger("li.etl")
 
-# Schema fields that are not columns on the target feature class but are
-# accepted in a county field map as useful extras carried through ingest.
-EXTRA_MAPPABLE = {"alt_parcel_id", "city"}
+# Field-map keys accepted that are not columns on the target feature class.
+# Empty: alt_parcel_id and city were promoted to real Parcels fields once the
+# Tarrant pilot showed both were worth keeping. The hook stays because county
+# schemas differ and the next one may carry something we want to pass through.
+EXTRA_MAPPABLE: set[str] = set()
 
 
 class IngestRefused(Exception):
@@ -286,10 +288,37 @@ def download_rest_layer(endpoint: str, out_dir: Path, out_name: str,
     return written
 
 
+def combine_geojson_pages(paths: Sequence[Path], out_dir: Path,
+                          chunk: int = 50) -> list[Path]:
+    """Concatenate downloaded pages into a few larger FeatureCollections.
+
+    `JSONToFeatures` carries a second or two of fixed overhead per call, so
+    running it 759 times to load one county dominates the entire ingest.
+    Concatenating first turns that into ~15 calls. The original pages are left
+    untouched on disk - they are the raw record.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    combined: list[Path] = []
+    for i in range(0, len(paths), chunk):
+        feats: list[dict] = []
+        for page in paths[i:i + chunk]:
+            feats.extend(json.loads(page.read_text(encoding="utf-8")).get("features", []))
+        out = out_dir / f"combined_{i // chunk:03d}.geojson"
+        out.write_text(json.dumps({"type": "FeatureCollection", "features": feats}),
+                       encoding="utf-8")
+        combined.append(out)
+    log.info("  combined %d pages into %d files", len(paths), len(combined))
+    return combined
+
+
 def geojson_to_feature_class(paths: Sequence[Path], out_gdb: str, out_name: str,
-                             target_crs: int) -> str:
+                             target_crs: int, interim_dir: Path | None = None,
+                             chunk: int = 50) -> str:
     """Convert downloaded GeoJSON pages into one projected feature class."""
     _require_arcpy()
+    if interim_dir is not None and len(paths) > chunk:
+        paths = combine_geojson_pages(paths, interim_dir / out_name, chunk)
+
     scratch = f"{out_gdb}\\_pages_{out_name}"
     parts: list[str] = []
     for i, p in enumerate(paths):
@@ -298,6 +327,8 @@ def geojson_to_feature_class(paths: Sequence[Path], out_gdb: str, out_name: str,
             arcpy.management.Delete(tmp)
         arcpy.conversion.JSONToFeatures(str(p), tmp, "POLYGON")
         parts.append(tmp)
+        if (i + 1) % 5 == 0:
+            log.info("    converted %d/%d", i + 1, len(paths))
 
     merged = f"{out_gdb}\\_merged_{out_name}"
     if arcpy.Exists(merged):
@@ -405,8 +436,9 @@ def ingest_county_parcels(
 
     # 4 - convert and reproject to the analysis CRS
     target_crs = int(config.schema()["meta"]["crs"])
-    staged = geojson_to_feature_class(pages, gdb, f"_stage_{county.lower()}_parcels",
-                                      target_crs)
+    staged = geojson_to_feature_class(
+        pages, gdb, f"_stage_{county.lower()}_parcels", target_crs,
+        interim_dir=Path(paths["interim_dir"]))
     staged_count = int(arcpy.management.GetCount(staged)[0])
     log.info("staged %s features in EPSG:%s", f"{staged_count:,}", target_crs)
 
@@ -458,29 +490,47 @@ def append_to_parcels(staged: str, gdb: str, fm: FieldMapping,
 
     lv_i = schema_fields.index("appraised_land_val") if "appraised_land_val" in schema_fields else None
     n = 0
-    with arcpy.da.SearchCursor(staged, ["SHAPE@", *src_fields]) as sc, \
-         arcpy.da.InsertCursor(target, out_fields) as ic:
-        for row in sc:
-            values = {f: row[i + 1] for i, f in enumerate(schema_fields)}
-            land_val = row[lv_i + 1] if lv_i is not None else None
-            extras = {
-                "county": county.title(),
-                "source_id": source_id,
-                "land_val_flag": classify_land_value(land_val),
-                # Zoning is joined in a later step; until then the honest value
-                # is Unknown, which is also the default subtype (D-013 Q2).
-                "zoning_confidence": "Unknown",
-                "zoning_conf_st": 4,
-            }
-            out = []
-            for f in out_fields:
-                if f == "SHAPE@":
-                    out.append(row[0])
-                elif f in values:
-                    out.append(values[f])
-                else:
-                    out.append(extras.get(f))
-            ic.insertRow(tuple(out))
-            n += 1
+    # Parcels carries attribute rules (calc_Parcel_Acres and friends), and a
+    # class with rules cannot be written outside an edit session - inserting
+    # directly raises "Objects in this class cannot be updated outside an edit
+    # session". The session is also what lets the rules fire on insert, which
+    # is how acres, land_val_per_acre and acres_delta_pct get populated at all.
+    editor = arcpy.da.Editor(gdb)
+    editor.startEditing(with_undo=False, multiuser_mode=False)
+    editor.startOperation()
+    try:
+        with arcpy.da.SearchCursor(staged, ["SHAPE@", *src_fields]) as sc, \
+             arcpy.da.InsertCursor(target, out_fields) as ic:
+            for row in sc:
+                values = {f: row[i + 1] for i, f in enumerate(schema_fields)}
+                land_val = row[lv_i + 1] if lv_i is not None else None
+                extras = {
+                    "county": county.title(),
+                    "source_id": source_id,
+                    "land_val_flag": classify_land_value(land_val),
+                    # Zoning is joined in a later step; until then the honest
+                    # value is Unknown, which is also the default subtype
+                    # (D-013 Q2).
+                    "zoning_confidence": "Unknown",
+                    "zoning_conf_st": 4,
+                }
+                out = []
+                for f in out_fields:
+                    if f == "SHAPE@":
+                        out.append(row[0])
+                    elif f in values:
+                        out.append(values[f])
+                    else:
+                        out.append(extras.get(f))
+                ic.insertRow(tuple(out))
+                n += 1
+                if n % 50000 == 0:
+                    log.info("    appended %s rows", f"{n:,}")
+        editor.stopOperation()
+        editor.stopEditing(save_changes=True)
+    except Exception:
+        editor.abortOperation()
+        editor.stopEditing(save_changes=False)
+        raise
     log.info("appended %s rows into Parcels", f"{n:,}")
     return n

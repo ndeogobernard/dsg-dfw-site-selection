@@ -42,7 +42,9 @@ def test_tarrant_maps_cleanly_against_the_real_field_list(tarrant_cfg):
     assert m.mapping["acres_published"] == "LAND_ACRES"
     assert m.mapping["appraised_land_val"] == "LAND_VALUE"
     assert m.mapping["appraised_total_val"] == "TOTAL_VALU"
-    assert m.mapping["parcel_id"] == "TAXPIN"
+    # ACCOUNT is the unique key; TAXPIN is the abstract tract (98.44% unique)
+    assert m.mapping["parcel_id"] == "ACCOUNT"
+    assert m.mapping["alt_parcel_id"] == "TAXPIN"
 
 
 def test_unavailable_fields_are_declared_not_silently_missing(tarrant_cfg):
@@ -62,16 +64,29 @@ def test_missing_source_field_is_reported_not_skipped():
 
 
 def test_field_matching_is_case_insensitive_but_records_source_spelling():
-    cfg = {"field_map": {"parcel_id": "taxpin"}}
+    cfg = {"field_map": {"parcel_id": "account", "alt_parcel_id": "TaxPin"}}
     m = etl.resolve_field_mapping(cfg, TARRANT_FIELDS)
     assert m.ok
-    assert m.mapping["parcel_id"] == "TAXPIN"
+    # Matched case-insensitively, but stored as the source spells it.
+    assert m.mapping["parcel_id"] == "ACCOUNT"
+    assert m.mapping["alt_parcel_id"] == "TAXPIN"
+
+
+def test_account_is_the_unique_key_not_taxpin(tarrant_cfg):
+    """Verified over a 20,000-record sample: ACCOUNT 100% unique, TAXPIN 98.44%.
+
+    TAXPIN identifies the survey abstract tract, and one tract can hold several
+    separately-appraised parcels - A1614-1C carries eight. Keying on it would
+    have produced duplicate parcel_ids, which the QA check caught on the pilot.
+    """
+    assert tarrant_cfg["field_map"]["parcel_id"] == "ACCOUNT"
+    assert tarrant_cfg["field_map"]["alt_parcel_id"] == "TAXPIN"
 
 
 def test_unmapped_source_fields_are_listed(tarrant_cfg):
     m = etl.resolve_field_mapping(tarrant_cfg, TARRANT_FIELDS)
     assert "IMPR_VALUE" in m.unmapped_source_fields
-    assert "TAXPIN" not in m.unmapped_source_fields
+    assert "ACCOUNT" not in m.unmapped_source_fields
 
 
 def test_every_county_field_map_targets_real_parcel_fields():

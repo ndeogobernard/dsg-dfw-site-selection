@@ -219,7 +219,14 @@ feature_classes:
     # human-readable domain-controlled text. The two are kept in sync on ingest.
     subtype_field: zoning_conf_st
     fields:
-      - {name: parcel_id,            type: TEXT,   length: 64,  alias: Parcel ID, nullable: false}
+      # parcel_id is the appraisal ACCOUNT number: verified 100% unique over a
+      # 20,000-record sample. TAXPIN is the survey/abstract-tract identifier and
+      # is only 98.44% unique - one tract can hold several appraised parcels
+      # (A1614-1C carries 8). It is kept as alt_parcel_id because that grouping
+      # is exactly what assemblage logic will want.
+      - {name: parcel_id,            type: TEXT,   length: 64,  alias: Parcel ID (account), nullable: false}
+      - {name: alt_parcel_id,        type: TEXT,   length: 64,  alias: Alt Parcel ID (tract/TAXPIN)}
+      - {name: city,                 type: TEXT,   length: 100, alias: City}
       - {name: zoning_conf_st,       type: SHORT,  alias: Zoning Confidence Subtype}
       - {name: zoning_confidence,    type: TEXT,   length: 12,  alias: Zoning Confidence, domain: dm_ZoningConfidence, default: Unknown}
       - {name: county,               type: TEXT,   length: 50,  alias: County}

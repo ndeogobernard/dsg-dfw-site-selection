@@ -80,8 +80,11 @@ sources:
         feature_count_tolerance_pct: 5
         max_record_count: 1000          # paging is mandatory
         field_map:
-          parcel_id:           TAXPIN
-          alt_parcel_id:       ACCOUNT
+          # ACCOUNT, not TAXPIN. Verified over a 20,000-record sample: ACCOUNT
+          # is 100% unique, TAXPIN only 98.44% - it identifies the survey
+          # abstract tract, and one tract can hold several appraised parcels.
+          parcel_id:           ACCOUNT
+          alt_parcel_id:       TAXPIN
           owner_name:          OWNER_NAME
           situs_addr:          SITUS_ADDR
           city:                CITY

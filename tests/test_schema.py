@@ -416,7 +416,8 @@ def test_tarrant_field_map_is_verified_and_complete():
     for schema_field, cad_field in (("acres_published", "LAND_ACRES"),
                                     ("appraised_land_val", "LAND_VALUE"),
                                     ("appraised_total_val", "TOTAL_VALU"),
-                                    ("parcel_id", "TAXPIN")):
+                                    ("parcel_id", "ACCOUNT"),
+                                    ("alt_parcel_id", "TAXPIN")):
         assert fm[schema_field] == cad_field
     # Fields verified absent must be declared, not silently unmapped.
     assert set(t["unavailable"]) >= {"zoning_code", "land_use_code"}
