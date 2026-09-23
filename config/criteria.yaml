@@ -22,8 +22,16 @@ criteria:
     name: Warehouse and transport labor pool
     description: >-
       Sum of ACS workers in transportation and material-moving occupations
-      (C24010) across block groups whose population-weighted centroid falls
-      inside the candidate's 30-minute Driving service area.
+      across block groups whose population-weighted centroid falls inside the
+      candidate's 30-minute Driving service area. Production workers are
+      deliberately excluded - factory workers are not distribution-centre
+      workers, and C24010's parent lines fold the two together.
+    # Verified live against the Census variable metadata (recon 4.2). C24010
+    # splits Production / Transportation / Material moving separately per sex.
+    # Using the parent lines C24010_034E / _070E would inflate C01.
+    acs_variables:
+      occ_transp_matmov: [C24010_036E, C24010_037E, C24010_072E, C24010_073E]
+      occ_prod:          [C24010_035E, C24010_071E]
     unit: workers
     direction: Benefit
     sources: [S08]
@@ -119,6 +127,11 @@ criteria:
   - id: C09
     name: Flood risk
     description: Percent of the candidate polygon within a FEMA Special Flood Hazard Area (A/AE/AH/AO).
+    # NFHL has no boolean SFHA field and no floodway field at all (recon 3).
+    source_fields:
+      sfha:     {field: SFHA_TF, type: text, true_value: "T"}
+      floodway: {field: ZONE_SUBTY, match: contains, value: FLOODWAY}
+      zone:     {field: FLD_ZONE}
     unit: percent
     direction: Cost
     sources: [S13]
@@ -149,11 +162,34 @@ criteria:
     field_raw: c11_raw
     field_scaled: c11_s
 
-# Optional C12 - only if Lightcast trial access is obtained (scope 5.3).
+  - id: C12
+    name: Zoning and entitlement signal
+    description: >-
+      Industrial context as a scored signal rather than a hard gate (D-009,
+      D-013). Scores highest where an authoritative municipal layer confirms
+      industrial zoning, lower where industrial use is only inferred, lower
+      again where the parcel is unzoned or its zoning is unpublished. This is
+      where entitlement risk enters the model - screening no longer discards a
+      parcel for unknown zoning, so the uncertainty has to be priced instead.
+    unit: ordinal 0-100
+    direction: Benefit
+    sources: [S02, S22]
+    depends_on: [Parcels, Zoning]
+    # Applied to the candidate's dominant zoning_confidence tier.
+    tier_scores:
+      Confirmed: 100    # authoritative layer, industrial class
+      Inferred:  65     # land use / NLCD / NCTCOG support an industrial reading
+      Unzoned:   50     # unincorporated - no zoning exists by law, so no barrier
+      Unknown:   25     # inside a city that publishes nothing usable
+    # A parcel CONFIRMED non-industrial is removed in screening, not scored here.
+    field_raw: c12_raw
+    field_scaled: c12_s
+
+# Optional C13 - only if Lightcast trial access is obtained (scope 5.3).
 # Enabling it requires rebalancing all three weight scenarios and documenting
 # the change in the methodology report.
 optional_criteria:
-  - id: C12
+  - id: C13
     name: Lightcast staffing-pattern occupations
     description: Lightcast staffing-pattern count of relevant occupations within the 30-minute shed.
     unit: workers

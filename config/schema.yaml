@@ -51,6 +51,20 @@ domains:
       MixedUse:           Mixed Use
       Unknown:            Unknown / Not Published
 
+  dm_ZoningConfidence:
+    type: coded
+    field_type: TEXT
+    description: >-
+      How well the zoning of a parcel is actually known (D-009). Zoning is not a
+      hard filter; parcels whose zoning cannot be confirmed are carried into
+      scoring rather than discarded, because the alternative silently drops all
+      unincorporated and non-publishing-city land.
+    values:
+      Confirmed:  Confirmed from an authoritative municipal zoning layer
+      Inferred:   Inferred from land use / NLCD / regional land-use data
+      Unzoned:    Outside any incorporated place - no zoning exists by law
+      Unknown:    Inside a city that publishes no usable zoning layer
+
   dm_FloodZone:
     type: coded
     field_type: TEXT
@@ -194,37 +208,54 @@ feature_classes:
     dataset: Cadastral
     geometry: POLYGON
     alias: Parcels
-    # Scope 4.5 specifies subtypes "by land_use_class". ArcGIS requires the
-    # subtype field to be SHORT or LONG, so the subtype is keyed on the paired
-    # integer field land_use_st while land_use_class remains the human-readable
-    # domain-controlled text value. The two are kept in sync on ingest.
-    subtype_field: land_use_st
+    # D-013 Q2: the subtype was originally keyed on land_use_class, per scope
+    # 4.5. Recon showed no county in the study area is guaranteed to publish a
+    # land-use code - Tarrant publishes none at all - so that subtype would have
+    # been unset on every record. The subtype is therefore repurposed onto
+    # zoning_confidence, which the pipeline always populates.
+    #
+    # ArcGIS requires the subtype field to be SHORT or LONG, so it is keyed on
+    # the paired integer zoning_conf_st while zoning_confidence stays the
+    # human-readable domain-controlled text. The two are kept in sync on ingest.
+    subtype_field: zoning_conf_st
     fields:
       - {name: parcel_id,            type: TEXT,   length: 64,  alias: Parcel ID, nullable: false}
-      - {name: land_use_st,          type: SHORT,  alias: Land Use Subtype}
+      - {name: zoning_conf_st,       type: SHORT,  alias: Zoning Confidence Subtype}
+      - {name: zoning_confidence,    type: TEXT,   length: 12,  alias: Zoning Confidence, domain: dm_ZoningConfidence, default: Unknown}
       - {name: county,               type: TEXT,   length: 50,  alias: County}
       - {name: situs_addr,           type: TEXT,   length: 200, alias: Situs Address}
       - {name: owner_type,           type: TEXT,   length: 50,  alias: Owner Type}
       - {name: owner_name,           type: TEXT,   length: 200, alias: Owner Name}
       - {name: land_use_code,        type: TEXT,   length: 25,  alias: Land Use Code (raw)}
+      # Nullable: only some counties publish a land-use code. Tarrant publishes
+      # none (recon 1.5). Kept as an attribute; no longer the subtype key.
       - {name: land_use_class,       type: TEXT,   length: 25,  alias: Land Use Class, domain: dm_LandUseClass}
       - {name: zoning_code,          type: TEXT,   length: 25,  alias: Zoning Code (raw)}
       - {name: zoning_class,         type: TEXT,   length: 25,  alias: Zoning Class, domain: dm_ZoningClass, default: Unknown}
-      - {name: acres,                type: DOUBLE, alias: Acres, domain: rg_Acres}
+      # Two acreages, deliberately. `acres` is derived from geometry by an
+      # attribute rule; `acres_published` is what the appraisal district states.
+      # They routinely disagree, and D-008 screens on the published value
+      # because that is the figure a broker or appraiser would quote. The
+      # discrepancy is a QA/QC check, not something to reconcile away.
+      - {name: acres,                type: DOUBLE, alias: Acres (from geometry), domain: rg_Acres}
+      - {name: acres_published,      type: DOUBLE, alias: Acres (CAD published), domain: rg_Acres}
+      - {name: acres_delta_pct,      type: DOUBLE, alias: Acreage Discrepancy (%)}
       - {name: appraised_land_val,   type: DOUBLE, alias: Appraised Land Value}
       - {name: appraised_total_val,  type: DOUBLE, alias: Appraised Total Value}
       - {name: land_val_per_acre,    type: DOUBLE, alias: Land Value per Acre}
+      # D-008: a zero land value is exempt / right-of-way / government land, not
+      # free land. Flagged here and excluded from C10 normalization so it cannot
+      # normalize to the best possible land-cost score.
+      - {name: land_val_flag,        type: TEXT,   length: 16,  alias: Land Value Flag}
       - {name: year_built,           type: SHORT,  alias: Year Built}
       - {name: improvement_flag,     type: SHORT,  alias: Has Improvement}
       - {name: source_id,            type: TEXT,   length: 10,  alias: Source ID}
     subtypes:
-      Industrial:   {code: 1, defaults: {zoning_class: LightIndustrial}}
-      Commercial:   {code: 2, defaults: {zoning_class: Commercial}}
-      Vacant:       {code: 3, defaults: {zoning_class: Unknown}}
-      Agricultural: {code: 4, defaults: {zoning_class: Agricultural}}
-      Residential:  {code: 5, defaults: {zoning_class: Residential}}
-      Other:        {code: 6, defaults: {zoning_class: Unknown}}
-    default_subtype: 3
+      Confirmed: {code: 1, defaults: {zoning_confidence: Confirmed}}
+      Inferred:  {code: 2, defaults: {zoning_confidence: Inferred}}
+      Unzoned:   {code: 3, defaults: {zoning_confidence: Unzoned}}
+      Unknown:   {code: 4, defaults: {zoning_confidence: Unknown}}
+    default_subtype: 4
 
   ParcelAssemblages:
     dataset: Cadastral
@@ -512,11 +543,11 @@ feature_classes:
     generated_fields:
       # c01_raw .. c11_raw and c01_s .. c11_s (Sections 5.3 / 5.4)
       - pattern: "c{i:02d}_raw"
-        count: 11
+        count: 12
         type: DOUBLE
         alias: "Criterion C{i:02d} (raw)"
       - pattern: "c{i:02d}_s"
-        count: 11
+        count: 12
         type: DOUBLE
         alias: "Criterion C{i:02d} (scaled 0-100)"
         domain: rg_Score
@@ -784,6 +815,17 @@ attribute_rules:
     triggers: [INSERT, UPDATE]
     script: "return $feature.Shape_Area / 43560;"
     description: Acreage derived from geometry (analysis CRS is US survey feet).
+
+  - name: calc_Parcel_AcresDelta
+    table: Parcels
+    type: CALCULATION
+    field: acres_delta_pct
+    triggers: [INSERT, UPDATE]
+    script: "if (IsEmpty($feature.acres_published) || $feature.acres_published <= 0 || IsEmpty($feature.acres)) { return null; } return Abs($feature.acres - $feature.acres_published) / $feature.acres_published * 100;"
+    description: >-
+      Percentage disagreement between geometry-derived acreage and the acreage
+      the appraisal district publishes. D-008 screens on the published value;
+      this makes the divergence visible instead of reconciling it away.
 
   - name: calc_Parcel_LandValPerAcre
     table: Parcels

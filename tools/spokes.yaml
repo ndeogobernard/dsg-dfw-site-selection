@@ -27,6 +27,10 @@ spokes:
       - {from: config/criteria.yaml,      to: config/criteria.yaml}
       - {from: config/weights.json,       to: config/weights.json}
       - {from: config/sources.yaml,       to: config/sources.yaml}
+      # Needed by the D-013 screening tests in tests/test_schema.py. Omitting it
+      # shipped a spoke whose suite failed on import, which the manifest cannot
+      # catch on its own - it verifies hub-side existence, not spoke-side health.
+      - {from: config/screening.yaml,     to: config/screening.yaml}
       - {from: config/paths.yaml,         to: config/paths.yaml}
       - {from: src/li/__init__.py,        to: src/li/__init__.py}
       - {from: src/li/config.py,          to: src/li/config.py}

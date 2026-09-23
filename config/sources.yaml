@@ -59,18 +59,46 @@ sources:
         County appraisal districts where StratMap coverage is stale or absent -
         TAD (Tarrant), DCAD (Dallas), CCAD (Collin), Denton CAD, Ellis CAD,
         Johnson CAD, Kaufman CAD, Parker CAD, Rockwall CAD, Hunt CAD, Wise CAD.
-    field_map:
-      _default:
-        parcel_id: PROP_ID
-        owner_name: OWNER_NAME
-        situs_addr: SITUS_ADDR
-        land_use_code: LAND_STATE
-        appraised_land_val: LAND_VAL
-        appraised_total_val: MKT_VAL
-        year_built: YR_BUILT
-      # Per-county overrides are added during Week 1 as each download is
-      # inspected. The ingest tool fails loudly on an unmapped required field
-      # rather than silently writing nulls.
+    # PER-COUNTY ONLY. There is deliberately no `_default` block: the 11
+    # appraisal districts publish independently and share no schema. The
+    # original guessed default (PROP_ID / LAND_STATE / LAND_VAL) turned out to
+    # be wrong for Tarrant in every field, so guessing is not permitted -
+    # IngestAndStandardize refuses to run a county that has no verified map.
+    #
+    # `status: verified` means the field names were read from the live service.
+    # `status: skeleton` means the endpoint is known but the fields are not yet
+    # confirmed; ingest will refuse until it is promoted to verified.
+    counties:
+
+      tarrant:
+        status: verified
+        verified_on: "2026-09-19"
+        acquisition: AUTO
+        endpoint: https://mapit.tarrantcounty.com/arcgis/rest/services/Dynamic/TADParcels/MapServer/0
+        native_crs: 3785
+        expected_feature_count: 758633
+        feature_count_tolerance_pct: 5
+        max_record_count: 1000          # paging is mandatory
+        field_map:
+          parcel_id:           TAXPIN
+          alt_parcel_id:       ACCOUNT
+          owner_name:          OWNER_NAME
+          situs_addr:          SITUS_ADDR
+          city:                CITY
+          acres_published:     LAND_ACRES
+          appraised_land_val:  LAND_VALUE
+          appraised_total_val: TOTAL_VALU
+          year_built:          YEAR_BUILT
+        unavailable:
+          # Verified absent from the TAD schema (recon 1.5). Declared explicitly
+          # so a null here is a known fact rather than a silent mapping failure.
+          - land_use_code
+          - land_use_class
+          - zoning_code
+          - zoning_class
+        notes: >-
+          Do not confuse with Tax/TCProperty - identical 56-field schema, 110
+          county-owned features only. The feature count identifies the layer.
     notes: >-
       Largest dataset in the project - expect millions of polygons across 11
       counties. Ingest clips to the MSA + 15-mile buffer before loading.

@@ -329,7 +329,15 @@ fallback is needed is the first thing to test once a key exists.
 
 ## 6. Schema changes this recon implies
 
-Not yet applied — they depend on **D-008** and **D-009** being settled.
+> **STATUS: APPLIED 2026-09-22.** D-008, D-009 and D-013 are all DECIDED and every item
+> below is implemented in `config/` and present in the rebuilt geodatabase. See
+> `docs/DECISIONS.md` entries **D-008-R**, **D-009-R** and **D-013**.
+>
+> Items 2 and 3 landed with a change of plan: the `Parcels` subtype moved off
+> `land_use_class` entirely (D-013 Q2), and zoning became a scored signal rather than a
+> filter (D-013 Q1), so C12 was added and its weight carved out of C11.
+
+Originally recorded as: *not yet applied — they depend on D-008 and D-009 being settled.*
 
 1. `Parcels`: add `acres_published` (DOUBLE) to hold CAD acreage separately from the
    geometry-derived `acres`, and a QA/QC check comparing them.

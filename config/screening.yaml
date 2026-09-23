@@ -7,7 +7,9 @@
 # --- Appendix B defaults (do not edit casually; add a variant below instead) ---
 min_acres: 80
 max_parcels_per_assemblage: 6
-allow_agricultural_near_industrial_miles: 1.0
+# allow_agricultural_near_industrial_miles: removed by D-013 Q1 - it only
+# existed to rescue agricultural land from the industrial-zoning gate,
+# and there is no longer a gate to rescue it from.
 max_sfha_pct: 20
 max_floodway_pct: 0
 max_wetland_pct: 10
@@ -27,20 +29,35 @@ assemblage:
   require_contiguity: true
   manual_review_acres_over: 300
 
-# --- Zoning eligibility (5.1 step 2) ---
+# --- Zoning (D-013 Q1: NOT a hard filter) --------------------------------------
+# Screening is physical and infrastructural only. Zoning was demoted because it
+# is unobtainable for a large share of the study area: parcels carry none,
+# coverage is city-by-city, and unincorporated Texas land has no zoning by law.
+# Gating on it silently discarded exactly the cheap highway-adjacent greenfield
+# land a DC would realistically buy (D-009, recon 1.5 / 2.2).
+#
+# Industrial context now lives in SCORING - criterion C11 (industrial cluster)
+# plus C12 (zoning and entitlement signal), see config/criteria.yaml.
 zoning:
-  eligible_classes:
-    - HeavyIndustrial
-    - LightIndustrial
-    - PlannedIndustrial
-  # Agricultural land within N miles of existing industrial zoning is retained as
-  # rezonable greenfield.
-  agricultural_rezonable: true
-  # Where no municipal zoning layer exists (unincorporated or non-publishing
-  # city), fall back to parcel land-use code + NLCD. Flagged for review rather
-  # than silently passed or failed. See scope Section 14, parcel-data risk.
-  fallback_to_land_use: true
-  fallback_screen_status: Review
+  hard_filter: false
+  # The ONLY zoning-based exclusion that survives: a parcel whose zoning is
+  # confirmed by an authoritative municipal layer to be a non-industrial,
+  # non-agricultural class. Confirmed residential land is genuinely out.
+  # Everything else - inferred, unzoned, unknown - is carried into scoring.
+  exclude_confirmed_non_industrial: true
+  never_excluded_confidences: [Inferred, Unzoned, Unknown]
+  excludable_classes_when_confirmed:
+    - Residential
+    - MixedUse
+  # Tier assignment for zoning_confidence (schema domain dm_ZoningConfidence).
+  confidence_rules:
+    Confirmed: authoritative municipal zoning layer intersects the parcel
+    Inferred:  no zoning layer, but land use / NLCD / NCTCOG support the reading
+    Unzoned:   parcel falls outside any incorporated place
+    Unknown:   inside an incorporated place that publishes no usable layer
+  # Parcels that are not Confirmed get screen_status = Review, so the shortlist
+  # always shows how much entitlement uncertainty it carries.
+  non_confirmed_screen_status: Review
 
 # --- NLCD classes counted as "already built out" (5.1 max_developed_pct) ---
 nlcd_developed_classes: [23, 24]      # 23 = Developed Medium, 24 = Developed High

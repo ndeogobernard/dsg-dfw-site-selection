@@ -262,7 +262,8 @@ tool, so `tools/setup_pro_project.py` writes an empty `.atbx` directly (it is a 
 ## D-008 · C10 land-cost data path
 
 - **Date raised:** 2026-09-19
-- **Status:** `OPEN` — recommendation below, awaiting sign-off
+- **Status:** `DECIDED` 2026-09-22 — recommendation accepted in full. Implementation recorded in
+  **D-008-R** below; the original analysis is preserved unchanged.
 - **Scope ref:** §5.3 C10, §3 S01, §14 (parcel-data risk)
 - **Evidence:** `docs/recon/RECON_findings.md` §1
 
@@ -312,7 +313,8 @@ includes improvements, and this study is buying land, not buildings.
 ## D-009 · Zoning strategy
 
 - **Date raised:** 2026-09-19
-- **Status:** `OPEN` — recommendation below, awaiting sign-off
+- **Status:** `DECIDED` 2026-09-22 — recommendation accepted in full. Implementation recorded in
+  **D-009-R** below; the original analysis is preserved unchanged.
 - **Scope ref:** §3 S02, §5.1 step 2, §14 (parcel-data risk)
 - **Evidence:** `docs/recon/RECON_findings.md` §1.5, §2
 
@@ -523,3 +525,115 @@ publishing documentation that is about to be wrong would be worse than publishin
   portfolio project, and it makes every spoke depend on a package index.
 - *Copy files by hand at each milestone.* What the manifest exists to prevent. It drifts within
   weeks and nobody can tell which copy is current.
+
+---
+
+## D-008-R · C10 land-cost path — resolution
+
+- **Date decided:** 2026-09-22 · **Status:** `DECIDED` · **Resolves:** D-008
+
+Recommendation accepted in full. Implemented in `config/schema.yaml`,
+`config/sources.yaml`, and `config/criteria.yaml`:
+
+**C10 = appraised land value ÷ published acres.** Sourced from the parcel layer's own value
+fields; no CAD roll join.
+
+**Two acreages, kept apart deliberately.** `acres` is derived from geometry by the
+`calc_Parcel_Acres` attribute rule; `acres_published` holds what the appraisal district states.
+Screening and C10 use the **published** value, because that is the figure a broker or appraiser
+would quote. `acres_delta_pct` is calculated by a new `calc_Parcel_AcresDelta` rule and is a
+QA/QC output — the divergence between deed acreage and digitised geometry is information, not
+an inconsistency to reconcile away.
+
+**Zero land value is never treated as free land.** `land_val_flag` records the reason. Parcels
+with `LAND_VALUE = 0` — 64,806 of 758,633 in Tarrant, 8.5%, all exempt / right-of-way /
+government — are excluded from C10 normalization and flagged for review. Left in, they would
+normalize to the *best possible* land-cost score and dominate the ranking with land that is not
+for sale. Silent zeroes are prohibited.
+
+**No shared default field map.** `config/sources.yaml` S01 now carries per-county maps only.
+Tarrant's is `status: verified` and read from the live service. Fields verified *absent* are
+declared under `unavailable:` so a null is a recorded fact rather than a silent mapping failure.
+
+---
+
+## D-009-R · Zoning strategy — resolution
+
+- **Date decided:** 2026-09-22 · **Status:** `DECIDED` · **Resolves:** D-009
+
+Recommendation accepted in full. Zoning is **not** a hard filter.
+
+**New domain `dm_ZoningConfidence`** — `Confirmed` / `Inferred` / `Unzoned` / `Unknown`, on
+`Parcels.zoning_confidence`.
+
+**Only surviving zoning exclusion:** a parcel *confirmed* by an authoritative municipal layer to
+be a non-industrial class (residential, mixed use). `Inferred`, `Unzoned`, and `Unknown` are
+never excluded — `screening.yaml → zoning.never_excluded_confidences` enforces it.
+
+**`Unzoned` is a finding, not a gap.** Texas counties have no general zoning authority, so
+unincorporated land has no zoning to find. It scores *above* `Unknown` precisely because the
+absence is legal certainty rather than missing data.
+
+Non-`Confirmed` parcels carry `screen_status = Review`, so the shortlist always shows how much
+entitlement uncertainty it is carrying.
+
+---
+
+## D-013 · Screening scope and the subtype key
+
+- **Date decided:** 2026-09-22 · **Status:** `DECIDED`
+- **Scope ref:** §5.1 (screening), §4.5 (subtypes), §5.3 (criteria), §5.5 (weights)
+
+Two questions, both following from D-009.
+
+### Q1 — Screening is physical and infrastructural only
+
+Every industrial-zoning requirement is removed from `config/screening.yaml`. The hard filters
+that remain are all physically verifiable: acreage, floodway, SFHA percentage, wetland coverage,
+mean slope, developed percentage, water and sewer CCN, and truck drive-time to an interchange.
+
+`allow_agricultural_near_industrial_miles` is retired — it existed only to rescue agricultural
+land from the industrial-zoning gate, and there is no longer a gate to rescue it from.
+
+**Industrial context moves into scoring**, where uncertainty can be priced instead of being
+fatal: **C11** (industrial cluster, unchanged) plus a new **C12 · Zoning and entitlement
+signal**, scoring `Confirmed` 100 / `Inferred` 65 / `Unzoned` 50 / `Unknown` 25.
+
+**Weighting.** C12's weight is **carved out of C11** rather than diluting every criterion — both
+measure industrial context, and the scope's original C11 allocation was already standing in for
+entitlement. Balanced 0.07 → 0.04 + 0.03; LaborFirst 0.06 → 0.04 + 0.02; AccessFirst
+0.07 → 0.04 + 0.03. Every other weight is untouched and each scenario still sums to exactly
+1.00. The optional Lightcast criterion moves from C12 to **C13**.
+
+*Why not leave zoning as a gate and accept the loss?* Because the loss is not random. It falls
+hardest on unincorporated highway-adjacent greenfield — the cheap, large, rezonable land a
+distribution centre would realistically buy. A filter that systematically removes the most
+plausible answers is worse than one that admits uncertainty.
+
+### Q2 — The `Parcels` subtype moves to `zoning_confidence`
+
+Scope §4.5 keys subtypes on `land_use_class`. Recon showed **no county is guaranteed to publish
+a land-use code — Tarrant publishes none at all**, so that subtype would have been unset on
+every record in the pilot county and probably most others. A subtype nothing populates is
+decoration.
+
+The subtype is therefore keyed on `zoning_conf_st`, the integer partner of `zoning_confidence`,
+which the pipeline always populates. ArcGIS requires integer subtype fields, hence the pair. The
+default subtype is **`Unknown`**: a parcel is unknown until evidence says otherwise, which is
+the honest default and fails safe.
+
+`land_use_class` is retained as a **nullable** attribute with its domain, for counties that do
+supply one. `land_use_st`, which existed only to be the subtype key, is removed.
+
+### Also applied — recon corrections
+
+- **C01** now names the exact ACS variables: `C24010_036E + 037E + 072E + 073E`. The parent
+  lines `034E`/`070E` include **production** occupations; using them would have folded factory
+  workers into the warehouse labour pool.
+- **C09** records the real NFHL derivations: SFHA from `SFHA_TF` (`"T"`/`"F"` *text*), floodway
+  by substring-matching `FLOODWAY` inside `ZONE_SUBTY`. NFHL has no floodway field, and floodway
+  is a hard filter — a wrong derivation would silently pass floodway land.
+
+**Verified after rebuild:** 12 domains, 6 attribute rules, 24 criterion columns on `SiteScores`,
+`Parcels` subtypes on `zoning_conf_st` defaulting to `Unknown`, `land_use_st` gone.
+41 tests passing (was 26).

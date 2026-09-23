@@ -145,13 +145,20 @@ def test_feature_classes_reference_declared_datasets(schema):
 # --------------------------------------------------------------------------
 
 def test_generated_fields_expand_to_expected_names(schema):
+    """One raw and one scaled column per criterion, derived from criteria.yaml.
+
+    Asserting a hard-coded 22 meant adding C12 broke this test rather than the
+    thing it was meant to protect. The count now follows the criteria list, so
+    the test fails only if the schema and the criteria genuinely disagree.
+    """
+    n = len(config.criteria()["criteria"])
     generated = gdb.expand_generated_fields(schema["feature_classes"]["SiteScores"])
     names = [f["name"] for f in generated]
-    assert len(names) == 22
+    assert len(names) == 2 * n
     assert names[0] == "c01_raw"
-    assert names[10] == "c11_raw"
-    assert names[11] == "c01_s"
-    assert names[21] == "c11_s"
+    assert names[n - 1] == f"c{n:02d}_raw"
+    assert names[n] == "c01_s"
+    assert names[-1] == f"c{n:02d}_s"
 
 
 def test_criteria_fields_match_generated_schema_fields(schema):
@@ -284,3 +291,141 @@ def test_sources_targeting_the_gdb_name_real_datasets(schema, datasets):
             assert name in datasets or name in rasters, (
                 f"{source['source_id']} targets unknown dataset '{name}'"
             )
+
+
+# --------------------------------------------------------------------------
+# D-008 / D-009 / D-013 invariants
+# --------------------------------------------------------------------------
+
+def _parcels(schema):
+    return schema["feature_classes"]["Parcels"]
+
+
+def _parcel_field_names(schema):
+    return {f["name"] for f in gdb.all_fields(_parcels(schema))}
+
+
+def test_d008_parcels_carry_both_acreages(schema):
+    """D-008 screens on CAD-published acreage; geometry acreage is kept beside it."""
+    names = _parcel_field_names(schema)
+    assert "acres" in names, "geometry-derived acreage missing"
+    assert "acres_published" in names, "CAD-published acreage missing"
+    assert "acres_delta_pct" in names, "acreage discrepancy field missing"
+
+
+def test_d008_acreage_discrepancy_rule_exists(schema):
+    rules = {r["name"]: r for r in schema["attribute_rules"]}
+    rule = rules.get("calc_Parcel_AcresDelta")
+    assert rule, "acreage-discrepancy rule missing"
+    assert rule["field"] == "acres_delta_pct"
+    assert "acres_published" in rule["script"]
+
+
+def test_d008_land_value_flag_exists(schema):
+    """A zero land value is exempt/ROW land, never silently treated as free."""
+    assert "land_val_flag" in _parcel_field_names(schema)
+
+
+def test_d009_zoning_confidence_domain(schema):
+    dom = schema["domains"].get("dm_ZoningConfidence")
+    assert dom, "dm_ZoningConfidence missing"
+    assert set(dom["values"]) == {"Confirmed", "Inferred", "Unzoned", "Unknown"}
+
+
+def test_d009_parcels_carry_zoning_confidence(schema):
+    fields = {f["name"]: f for f in gdb.all_fields(_parcels(schema))}
+    assert "zoning_confidence" in fields
+    assert fields["zoning_confidence"]["domain"] == "dm_ZoningConfidence"
+
+
+def test_d013_subtype_is_keyed_on_zoning_confidence(schema):
+    """D-013 Q2: subtypes moved off land_use_class, which nothing populates."""
+    spec = _parcels(schema)
+    assert spec["subtype_field"] == "zoning_conf_st"
+    assert set(spec["subtypes"]) == {"Confirmed", "Inferred", "Unzoned", "Unknown"}
+    # Unknown is the default: a parcel is unknown until proven otherwise.
+    unknown_code = spec["subtypes"]["Unknown"]["code"]
+    assert spec["default_subtype"] == unknown_code
+
+
+def test_d013_land_use_class_is_nullable(schema):
+    """Retained as an attribute for counties that supply it - Tarrant does not."""
+    fields = {f["name"]: f for f in gdb.all_fields(_parcels(schema))}
+    assert "land_use_class" in fields
+    assert fields["land_use_class"].get("nullable", True) is True
+
+
+def test_d013_screening_has_no_industrial_zoning_gate():
+    """Screening is physical/infrastructural only."""
+    zoning = config.screening()["zoning"]
+    assert zoning["hard_filter"] is False
+    assert "eligible_classes" not in zoning, "industrial-zoning gate still present"
+    assert set(zoning["never_excluded_confidences"]) == {"Inferred", "Unzoned", "Unknown"}
+
+
+def test_d013_screening_keeps_every_physical_filter():
+    s = config.screening()
+    for key in ("min_acres", "max_sfha_pct", "max_floodway_pct", "max_wetland_pct",
+                "max_mean_slope_pct", "max_developed_pct", "require_water_ccn",
+                "require_sewer_ccn_or_within_miles", "max_truck_min_to_interchange"):
+        assert key in s, f"physical filter {key} was dropped"
+
+
+def test_d013_zoning_signal_criterion_exists():
+    c12 = {c["id"]: c for c in config.criteria()["criteria"]}.get("C12")
+    assert c12, "C12 zoning/entitlement signal missing"
+    assert c12["direction"] == "Benefit"
+    assert set(c12["tier_scores"]) == {"Confirmed", "Inferred", "Unzoned", "Unknown"}
+    # Confidence must be monotonic: more certainty never scores worse.
+    t = c12["tier_scores"]
+    assert t["Confirmed"] > t["Inferred"] > t["Unzoned"] > t["Unknown"]
+
+
+def test_c01_uses_transport_and_material_moving_only():
+    """Recon 4.2: the C24010 parent lines would fold in production workers."""
+    c01 = {c["id"]: c for c in config.criteria()["criteria"]}["C01"]
+    v = c01["acs_variables"]
+    assert v["occ_transp_matmov"] == ["C24010_036E", "C24010_037E",
+                                      "C24010_072E", "C24010_073E"]
+    for parent in ("C24010_034E", "C24010_070E"):
+        assert parent not in v["occ_transp_matmov"], f"{parent} includes production"
+
+
+def test_c09_derives_flood_fields_from_real_nfhl_names():
+    """NFHL has no boolean SFHA field and no floodway field (recon 3)."""
+    c09 = {c["id"]: c for c in config.criteria()["criteria"]}["C09"]
+    sf = c09["source_fields"]
+    assert sf["sfha"]["field"] == "SFHA_TF"
+    assert sf["sfha"]["true_value"] == "T"
+    assert sf["floodway"]["field"] == "ZONE_SUBTY"
+    assert sf["floodway"]["value"].upper() == "FLOODWAY"
+
+
+def test_s01_has_no_guessed_default_field_map():
+    """The 11 CADs share no schema; a shared default is how wrong maps happen."""
+    s01 = next(s for s in config.sources()["sources"] if s["source_id"] == "S01")
+    assert "field_map" not in s01, "S01 still carries a shared default field_map"
+    assert "counties" in s01
+
+
+def test_tarrant_field_map_is_verified_and_complete():
+    s01 = next(s for s in config.sources()["sources"] if s["source_id"] == "S01")
+    t = s01["counties"]["tarrant"]
+    assert t["status"] == "verified"
+    fm = t["field_map"]
+    for schema_field, cad_field in (("acres_published", "LAND_ACRES"),
+                                    ("appraised_land_val", "LAND_VALUE"),
+                                    ("appraised_total_val", "TOTAL_VALU"),
+                                    ("parcel_id", "TAXPIN")):
+        assert fm[schema_field] == cad_field
+    # Fields verified absent must be declared, not silently unmapped.
+    assert set(t["unavailable"]) >= {"zoning_code", "land_use_code"}
+
+
+def test_county_field_maps_target_real_schema_fields(schema):
+    """Every mapped key must be a field that actually exists on Parcels."""
+    names = _parcel_field_names(schema) | {"alt_parcel_id", "city"}
+    s01 = next(s for s in config.sources()["sources"] if s["source_id"] == "S01")
+    for county, spec in s01["counties"].items():
+        for schema_field in (spec.get("field_map") or {}):
+            assert schema_field in names, f"{county}: {schema_field} not on Parcels"

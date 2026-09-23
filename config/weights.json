@@ -1,10 +1,11 @@
 {
-  "_comment": "Scope Section 5.5 / Appendix C. Weights must sum to 1.00 per scenario; enforced by tests/test_scoring.py and by the QA/QC check 'weights sum to 1.00'.",
+  "_comment": "Scope Section 5.5 / Appendix C. Weights must sum to 1.00 per scenario; enforced by tests/test_schema.py and by the QA/QC check 'weights sum to 1.00'.",
   "_scenarios": {
     "Balanced": "Client's stated priorities: workforce and store-network proximity, without over-committing to either.",
     "LaborFirst": "Tests the 'qualified and reliable workforce' priority as dominant.",
     "AccessFirst": "Tests store-network proximity and freight access as dominant."
   },
+  "_c12_note": "D-013 added C12 (zoning/entitlement signal) when zoning stopped being a hard filter. Its weight is carved out of C11 rather than diluting every criterion: C11 and C12 both measure industrial context, and the scope's original C11 allocation was already standing in for entitlement. Every other weight is untouched and each scenario still sums to exactly 1.00. Balanced C11 0.07 -> 0.04 + C12 0.03; LaborFirst 0.06 -> 0.04 + 0.02; AccessFirst 0.07 -> 0.04 + 0.03.",
   "Balanced": {
     "C01": 0.20,
     "C02": 0.05,
@@ -16,7 +17,8 @@
     "C08": 0.03,
     "C09": 0.05,
     "C10": 0.07,
-    "C11": 0.07
+    "C11": 0.04,
+    "C12": 0.03
   },
   "LaborFirst": {
     "C01": 0.30,
@@ -29,7 +31,8 @@
     "C08": 0.02,
     "C09": 0.04,
     "C10": 0.06,
-    "C11": 0.06
+    "C11": 0.04,
+    "C12": 0.02
   },
   "AccessFirst": {
     "C01": 0.12,
@@ -42,6 +45,7 @@
     "C08": 0.02,
     "C09": 0.04,
     "C10": 0.05,
-    "C11": 0.07
+    "C11": 0.04,
+    "C12": 0.03
   }
 }
