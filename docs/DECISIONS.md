@@ -637,3 +637,58 @@ supply one. `land_use_st`, which existed only to be the subtype key, is removed.
 **Verified after rebuild:** 12 domains, 6 attribute rules, 24 criterion columns on `SiteScores`,
 `Parcels` subtypes on `zoning_conf_st` defaulting to `Unknown`, `land_use_st` gone.
 41 tests passing (was 26).
+
+---
+
+## D-014 · Dallas County needs a DCAD roll join — D-008 does not generalise
+
+- **Date raised:** 2026-09-22 · **Status:** `OPEN`
+- **Scope ref:** §3 S01, §5.3 C10 · **Evidence:** CAD probe, 2026-09-22
+
+**Finding.** D-008 concluded that appraised values ship with parcel geometry and no CAD roll
+join is needed. That is true for Tarrant, and true for Denton. **It is false for Dallas.**
+
+`CurrentDcadParcels` (City of Dallas GIS Services) publishes **695,446 features with five
+fields**:
+
+```
+OBJECTID, RecAcs, GIS_Acct, Shape__Area, Shape__Length
+```
+
+Geometry, an account number, and a recorded acreage. **No land value, no total value, no owner,
+no situs address, no year built, no land use, no zoning.**
+
+This is precisely the scenario flagged in session 1 and then provisionally dismissed when
+Tarrant turned out to carry values inline. It was dismissed one county too early: **D-008's
+conclusion held for the county that happened to be probed first.** Dallas is the second-largest
+county in the study area, so this is a material gap, not an edge case.
+
+**Consequences.**
+
+- **C10 cannot be computed for Dallas parcels from the parcel layer alone.** Either a DCAD
+  tabular roll is obtained and joined on `GIS_Acct`, or Dallas candidates carry no land-cost
+  score and must be handled explicitly rather than scoring as missing.
+- The pipeline needs a **join step that the design does not currently have**, and it will be
+  needed per county rather than once.
+- The `unavailable:` list in `sources.yaml` is doing real work here: seven schema fields are
+  declared absent for Dallas, so their nulls are a recorded fact rather than a mapping failure.
+
+**Options.**
+
+1. **Obtain the DCAD tabular roll and join on `GIS_Acct`.** Correct and complete. Adds a
+   per-county join step to `IngestAndStandardize`, and DCAD's roll format must be confirmed.
+2. **Score Dallas candidates without C10** and redistribute C10's weight across the remaining
+   criteria *for those candidates only*. Avoids the join, but makes candidates in different
+   counties non-comparable — which defeats the ranking.
+3. **Use `TOTAL_VALU`-equivalent from another source** as a proxy. Not available either; Dallas
+   publishes no value field at all.
+4. **Exclude Dallas County.** Indefensible — it is the largest county by population in the MSA.
+
+**Recommendation: option 1.** The join is unavoidable if the ranking is to compare counties
+honestly. Better to discover this now, with two of eleven counties' schemas actually read, than
+at scoring time.
+
+**Also worth recording:** this is the second time an assumption survived because only one
+county had been checked. The remaining eight counties have no located service at all, so their
+value availability is unknown, and the possibility that more of them look like Dallas than like
+Tarrant should be treated as live.

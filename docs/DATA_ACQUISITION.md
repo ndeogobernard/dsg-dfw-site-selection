@@ -59,16 +59,52 @@ Parker `48367`, Rockwall `48397`, Tarrant `48439`, Wise `48497`. Clip to the MSA
 Fields that matter — `TAXPIN`, `ACCOUNT`, `OWNER_NAME`, `SITUS_ADDR`, `LAND_ACRES`,
 `LAND_VALUE`, `TOTAL_VALU`, `YEAR_BUILT`. **There is no zoning or land-use field** (see S02).
 
-**Other ten counties — *pending recon*.** Each CAD publishes independently and no shared schema
-should be assumed. For each: find the county GIS or CAD open-data portal, download the parcel
-layer, confirm it carries **land value** and **acreage**, and write an explicit `field_map` for
-that county in `config/sources.yaml`. Do not rely on a default map — the original guessed
-default was wrong for Tarrant.
+### Per-county status — probed 2026-09-22
 
-> **Appraised values ship with the geometry** in Tarrant — `LAND_VALUE > 0` on 91.5% of
-> parcels — so **no separate CAD roll join is needed** there (D-008). Whether that holds for the
-> other ten is *pending recon*. If a county publishes geometry only, its valuations must be
-> obtained as a separate tabular roll and joined on the account number.
+Only **Tarrant** is cleared for ingest. `IngestAndStandardize` refuses any county whose field
+map is not `status: verified`, so the rest cannot be ingested by accident.
+
+| County | Mode | Status | Features | Land value | Acreage | Source |
+|---|---|---|---:|---|---|---|
+| **Tarrant** | AUTO | **verified** | 758,633 | ✅ inline | ✅ | Tarrant County `TADParcels` |
+| **Denton** | AUTO | skeleton | 384,308 | ⚠️ split HS/NHS | ✅ | Denton County GIS `Parcels_FC` |
+| **Dallas** | AUTO | skeleton | 695,446 | ❌ **none** | ⚠️ `RecAcs` | City of Dallas `CurrentDcadParcels` |
+| Collin | **MANUAL** | not located | — | ? | ? | try <https://www.collincad.org/> |
+| Ellis | **MANUAL** | not located | — | ? | ? | try <https://www.elliscad.com/> |
+| Hunt | **MANUAL** | not located | — | ? | ? | try <https://www.hunt-cad.org/> |
+| Johnson | **MANUAL** | not located | — | ? | ? | try <https://www.johnsoncad.com/> |
+| Kaufman | **MANUAL** | not located | — | ? | ? | try <https://www.kaufman-cad.org/> |
+| Parker | **MANUAL** | not located | — | ? | ? | try <https://www.parkercad.org/> |
+| Rockwall | **MANUAL** | not located | — | ? | ? | try <https://www.rockwallcad.com/> |
+| Wise | **MANUAL** | not located | — | ? | ? | try <https://www.wisecad.org/> |
+
+Every portal above returns HTTP 200, but **whether it actually offers a downloadable parcel
+layer is unconfirmed** — a URL resolving is not the same as the data being there.
+
+**Denton — AUTO, richest schema found.** 71 fields, and the only county located that publishes
+a zoning field (`cad_zoning`) at all. Field-map skeleton is in `sources.yaml`. Two things must
+be confirmed before promoting it to `verified`: whether land value is
+`landHSValue + landNHSValue`, and whether `legalAcreage` or `effectiveSizeAcres` is the deeded
+figure.
+
+> **Dallas — geometry and account number only.** Five fields:
+> `OBJECTID, RecAcs, GIS_Acct, Shape__Area, Shape__Length`. **No land value, no owner, no
+> address, no year built, no land use, no zoning.** C10 cannot be computed for Dallas from the
+> parcel layer alone; a DCAD tabular roll must be joined on `GIS_Acct`. See **D-014** — this is
+> the join step D-008 concluded was unnecessary, and that conclusion held only because Tarrant
+> happened to be probed first.
+
+**What is needed by hand.** For the eight *not located* counties, someone has to visit the
+appraisal district site and determine whether a parcel shapefile or geodatabase is published,
+and whether valuations come with it or separately. Until then those counties cannot be ingested
+at all. Nothing is needed by hand for Tarrant, Denton, or Dallas geometry — all three are
+queryable REST services.
+
+**Writing a new county field map.** Add an entry under `S01 → counties` with `status:
+skeleton`, the endpoint, the expected feature count, and a `field_map`. Promote to `verified`
+only after reading the live field list. Declare fields the county does not publish under
+`unavailable:` so their nulls are a recorded fact. There is deliberately no shared default —
+the original guessed default was wrong for Tarrant in every field.
 
 ---
 

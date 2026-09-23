@@ -99,6 +99,101 @@ sources:
         notes: >-
           Do not confuse with Tax/TCProperty - identical 56-field schema, 110
           county-owned features only. The feature count identifies the layer.
+
+      # ------------------------------------------------------------------
+      # Every `portal` below returns HTTP 200 as of 2026-09-22, but whether it
+      # actually offers a downloadable parcel layer is UNCONFIRMED - the URL
+      # resolving is not the same as the data being there.
+      #
+      # The remaining ten counties. Probed 2026-09-22; NONE is cleared for
+      # ingest. `skeleton` means the endpoint and field names are recorded but
+      # the semantics are unconfirmed, and assert_ready_to_ingest refuses it.
+      # ------------------------------------------------------------------
+
+      denton:
+        status: skeleton
+        probed_on: "2026-09-22"
+        acquisition: AUTO
+        endpoint: https://gis.dentoncounty.gov/arcgis/rest/services/Parcels_FC/MapServer/0
+        publisher: Denton County GIS
+        expected_feature_count: 384308
+        feature_count_tolerance_pct: 5
+        field_count: 71
+        has_land_value: true
+        has_acreage: true
+        field_map:
+          parcel_id:           pid
+          alt_parcel_id:       geoID
+          owner_name:          name
+          situs_addr:          situs_full_address
+          city:                situsCity
+          acres_published:     legalAcreage
+          appraised_total_val: ownerAppraisedValue
+          year_built:          imprvActualYearBuilt
+          # cad_zoning is rare - most counties publish nothing of the kind.
+          zoning_code:         cad_zoning
+        to_confirm:
+          # Land value is split homestead / non-homestead. Whether
+          # appraised_land_val = landHSValue + landNHSValue must be confirmed
+          # against the CAD's own documentation before this is promoted.
+          - "appraised_land_val: landHSValue + landNHSValue (sum unconfirmed)"
+          - "legalAcreage vs effectiveSizeAcres - which is the deeded figure"
+          - "cad_zoning value domain and how populated it actually is"
+        notes: >-
+          Richest schema found so far - 71 fields, and the only county located
+          that publishes a zoning field at all. Promote to verified once the
+          land-value composition is confirmed.
+
+      dallas:
+        status: skeleton
+        probed_on: "2026-09-22"
+        acquisition: AUTO
+        endpoint: https://services2.arcgis.com/rwnOSbfKSwyTBcwN/arcgis/rest/services/CurrentDcadParcels/FeatureServer/0
+        publisher: City of Dallas GIS Services (DCAD parcels)
+        expected_feature_count: 695446
+        feature_count_tolerance_pct: 5
+        field_count: 5
+        has_land_value: false
+        has_acreage: partial
+        requires_roll_join: true
+        field_map:
+          alt_parcel_id:   GIS_Acct
+          acres_published: RecAcs
+        unavailable:
+          - appraised_land_val
+          - appraised_total_val
+          - owner_name
+          - situs_addr
+          - year_built
+          - land_use_code
+          - zoning_code
+        to_confirm:
+          - "Source of the DCAD tabular roll and the join key (GIS_Acct)"
+          - "Whether RecAcs is deeded acreage or a GIS calculation"
+          - "A parcel_id - GIS_Acct may be the only identifier published"
+        notes: >-
+          GEOMETRY AND ACCOUNT NUMBER ONLY - five fields. This is the case
+          D-008 assumed would not arise: C10 cannot be computed for Dallas
+          County from the parcel layer alone, and a DCAD roll join is required.
+          Dallas is the second-largest county in the study area, so this is a
+          material gap rather than an edge case. See D-014.
+
+      collin:      {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.collincad.org/, notes: "No queryable county service located. Try Collin CAD / Collin County open data."}
+      ellis:       {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.elliscad.com/, notes: "No queryable county service located."}
+      hunt:        {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.hunt-cad.org/, notes: "No queryable county service located."}
+      johnson:     {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.johnsoncad.com/, notes: "County ArcGIS server reachable but publishes no parcel service (5 services, none cadastral)."}
+      kaufman:     {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.kaufman-cad.org/, notes: "No queryable county service located."}
+      parker:      {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.parkercad.org/, notes: "No queryable county service located."}
+      rockwall:    {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.rockwallcad.com/, notes: "No queryable county service located."}
+      wise:        {status: not_located, acquisition: MANUAL, probed_on: "2026-09-22",
+                    portal: https://www.wisecad.org/, notes: "No queryable county service located."}
     notes: >-
       Largest dataset in the project - expect millions of polygons across 11
       counties. Ingest clips to the MSA + 15-mile buffer before loading.
