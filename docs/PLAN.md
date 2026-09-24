@@ -1,6 +1,6 @@
 # Project plan — milestone tracker
 
-In-repo tracking of the scope §11 timeline (8 weeks, part-time). `.claude/STATE.md` holds the
+In-repo tracking of the scope §11 timeline (8 weeks, part-time). `docs/STATE.md` holds the
 *current* position; this file holds the whole arc, including exit criteria and dependency gates.
 
 **Legend:** ✅ done · 🔄 in progress · ⏸ deliberately deferred · ◻ not started · ⛔ blocked
@@ -40,7 +40,7 @@ real precondition rather than a note:
 
 If the gate is not met, the correct action is to finish Week 5, not to publish partial results.
 
-### 6a · `PublishToAGOL` — tool 13 · *Claude Code*
+### 6a · `PublishToAGOL` — tool 13 · *Scripted*
 
 Publish the results layers as hosted feature layers (scope §6.3 tool 13, §7.4).
 
@@ -52,7 +52,7 @@ Publish the results layers as hosted feature layers (scope §6.3 tool 13, §7.4)
 - **Records:** item IDs written back to `ScoreRuns.parameters_json` so a published app traces to
   the exact run and git commit that produced it
 
-### 6b · Assemble the web map · *Claude Code*
+### 6b · Assemble the web map · *Scripted*
 
 Built with the **`arcgis` Python API** (not `arcpy`), so it is reproducible rather than clicked.
 
@@ -63,7 +63,7 @@ Built with the **`arcgis` Python API** (not `arcpy`), so it is reproducible rath
 - Service areas as toggleable layers; `Stores_DSG` filtered to `served_flag = 1`
 - Popups configured for the fields the dashboard indicators read
 
-### 6c · Scaffold the ArcGIS Dashboard · *Claude Code scaffolds / Bernard finishes*
+### 6c · Scaffold the ArcGIS Dashboard · *Scripted scaffold / Bernard finishes*
 
 Built with **`arcgis.apps.dashboard`** to the §7.4 specification:
 
@@ -76,11 +76,11 @@ Built with **`arcgis.apps.dashboard`** to the §7.4 specification:
   contributions for the selected candidate; gauge on `top10_freq`
 - **Details panel** — site profile text
 
-> **Hand-off:** Claude Code creates the widgets and wires the data. **Bernard finishes** the
+> **Hand-off:** The build script creates the widgets and wires the data. **Bernard finishes** the
 > cross-widget interactivity (selection filtering and zoom-to) and the **mobile layout** in the
 > Dashboard builder — both are builder-side configuration that the API does not express well.
 
-### 6d · Draft the StoryMap · *Claude Code scaffolds / Bernard finishes*
+### 6d · Draft the StoryMap · *Scripted scaffold / Bernard finishes*
 
 Built with **`arcgis.apps.storymap`** — all **14 sections** of scope §8, with copy written and
 maps/figures placed:
@@ -92,7 +92,7 @@ How stable is the answer? · The shortlist · The recommendation · Method, data
 Audience is brokers, corporate real-estate executives, and economic-development staff, so every
 technical term is explained in one line at first use (§8).
 
-> **Hand-off:** Claude Code drafts the narrative and places media. **Bernard verifies** the copy
+> **Hand-off:** The build script drafts the narrative and places media. **Bernard verifies** the copy
 > and **publishes** in the StoryMap UI — sidecar/swipe blocks and final layout are builder work,
 > and publishing is a deliberate human act.
 
@@ -111,7 +111,7 @@ technical term is explained in one line at first use (§8).
 
 **Week 7** — Bernard finishes dashboard interactivity and mobile layout; verifies and publishes
 the StoryMap; both shared for review. Portfolio cards updated per the Checkpoint protocol in
-`CLAUDE.md` as each public URL lands.
+`docs/PROJECT_GUIDE.md` as each public URL lands.
 
 **Week 8** — Methodology report (§9), README results summary, standalone GDB write-up, portfolio
 pages, and peer reproduction of the Balanced run (§13.6).

@@ -10,7 +10,7 @@ except finished assets, and nothing from there is committed here.
 
 **The change log below is append-only.** The checklist above it is living — tick boxes as
 assets land. Both are updated at every Checkpoint that produces a portfolio-worthy asset; see
-the Checkpoint protocol in `CLAUDE.md`.
+the Checkpoint protocol in `docs/PROJECT_GUIDE.md`.
 
 ---
 

@@ -43,7 +43,7 @@ Copy [`_LESSON_TEMPLATE.md`](_LESSON_TEMPLATE.md) to `NN-<slug>.md`.
 
 **Fill lessons from work that has actually been done.** A lesson written ahead of the work is
 fiction and will be wrong in the details that matter — the parameter that needed changing, the
-error that appeared, the runtime. Per the Checkpoint protocol in `CLAUDE.md`, when a phase
+error that appeared, the runtime. Per the Checkpoint protocol in `docs/PROJECT_GUIDE.md`, when a phase
 completes, its lesson is filled in from that session's real commands *and* the manual
 equivalent, while both are still fresh.
 

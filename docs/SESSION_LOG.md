@@ -4,7 +4,7 @@ Append-only. One dated block per working session, newest at the bottom.
 **Never edit or delete an earlier entry.** Corrections go in a later entry.
 
 Each block records: **what changed**, **what was decided**, **what's next**.
-Live status lives in `.claude/STATE.md`; decisions in `docs/DECISIONS.md`.
+Live status lives in `docs/STATE.md`; decisions in `docs/DECISIONS.md`.
 
 ---
 
@@ -33,7 +33,7 @@ Live status lives in `.claude/STATE.md`; decisions in `docs/DECISIONS.md`.
   5 attribute rules, GlobalIDs on all 40 classes, `CriteriaDefinitions` (11) and
   `WeightScenarios` (33) seeded from config with all scenario weights summing to 1.00.
 - Wrote **26 arcpy-free tests**; all pass in 6.5 s.
-- Set up this context system: `CLAUDE.md`, `.claude/STATE.md`, `docs/DECISIONS.md`,
+- Set up this context system: `docs/PROJECT_GUIDE.md`, `docs/STATE.md`, `docs/DECISIONS.md`,
   `docs/SESSION_LOG.md`.
 
 ### What was decided
@@ -198,7 +198,7 @@ expanded into **6a** `PublishToAGOL`, **6b** web map via the `arcgis` Python API
 dashboard scaffold, **6d** StoryMap draft — with a *checkable* dependency gate: `SiteScores` and
 `Shortlist` populated for all three scenarios, service areas and served stores resolved, maps
 M01–M18 exported. If the gate is not met the right action is to finish Week 5, not publish
-partial results. **6c and 6d are marked "Claude Code scaffolds / Bernard finishes"** — widget and
+partial results. **6c and 6d are marked "scripted scaffold / Bernard finishes"** — widget and
 narrative structure is scriptable; cross-widget interactivity, mobile layout, and publishing are
 builder-side and human acts. **D-011** logged: default auth is Pro's active portal session, so
 this project stores no credential at all.
@@ -211,7 +211,7 @@ floodway field. Also created `docs/REPRODUCE.md`, which did not exist.
 **3 · Dual-track tutorial standard.** `docs/tutorial/README.md` and `_LESSON_TEMPLATE.md`
 created — **neither existed**, so they were written to spec rather than edited. Every lesson
 carries Track A (automated), Track B (manual in ArcGIS Pro from raw sources), and a *Concepts —
-why this works* section. `CLAUDE.md` Checkpoint now captures both tracks when a phase completes.
+why this works* section. `docs/PROJECT_GUIDE.md` Checkpoint now captures both tracks when a phase completes.
 
 **4 · Four spoke repositories published**, all public, all HTTP 200:
 

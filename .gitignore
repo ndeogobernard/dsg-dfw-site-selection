@@ -47,6 +47,10 @@ env/
 *.secret
 credentials.json
 
+# --- Local tooling config (not part of the project) -------------------------
+/CLAUDE.md
+/.claude/
+
 # --- OS / editor -------------------------------------------------------------
 Thumbs.db
 desktop.ini
