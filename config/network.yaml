@@ -131,6 +131,28 @@ od_matrices:
   batch_size: 50
 
 # --- Validation (scope Section 10, network connectivity check) ---
+# Reference routes for the sanity check in scope Section 14. Coordinates are
+# WGS84 city centres. `ref_miles` and `ref_minutes` are typical free-flow
+# driving figures for comparison ONLY - they are approximate reference values,
+# not measurements, and the tolerance below is set wide enough to reflect that.
+# Their job is to catch a network that is broken, not to certify one that is
+# accurate: a disconnected network fails to solve at all, a network with the
+# one-way logic reversed or speeds in the wrong units comes out wildly off, and
+# a network missing a state cannot reach the out-of-state destinations.
+#
+# Four of the seven cross a state line on purpose. A Texas-only network - which
+# is what RHiNo would have given - solves the first three and fails the rest.
+validation_routes:
+  tolerance_pct: 35
+  routes:
+    - {name: "Fort Worth -> Dallas",     from: [-97.3308, 32.7555], to: [-96.7970, 32.7767], ref_miles: 32,  ref_minutes: 35}
+    - {name: "Dallas -> Austin",         from: [-96.7970, 32.7767], to: [-97.7431, 30.2672], ref_miles: 195, ref_minutes: 180}
+    - {name: "Dallas -> Houston",        from: [-96.7970, 32.7767], to: [-95.3698, 29.7604], ref_miles: 239, ref_minutes: 225}
+    - {name: "Dallas -> Oklahoma City",  from: [-96.7970, 32.7767], to: [-97.5164, 35.4676], ref_miles: 206, ref_minutes: 185}
+    - {name: "Dallas -> Shreveport LA",  from: [-96.7970, 32.7767], to: [-93.7502, 32.5252], ref_miles: 190, ref_minutes: 170}
+    - {name: "Dallas -> Little Rock AR", from: [-96.7970, 32.7767], to: [-92.2896, 34.7465], ref_miles: 319, ref_minutes: 285}
+    - {name: "Dallas -> Albuquerque NM", from: [-96.7970, 32.7767], to: [-106.6504, 35.0844], ref_miles: 647, ref_minutes: 570}
+
 validation:
   random_od_pairs: 100
   required_solve_rate: 1.0

@@ -373,3 +373,25 @@ def test_travel_mode_restrictions_exist_as_attributes(net):
         for r in mode.get("restrictions", []):
             assert r in names
         assert mode["impedance"] in names
+
+
+def test_local_extraction_is_disjoint_from_long_haul(cfg):
+    """The two tiers overlap in config by design, but the EXTRACTION must not:
+    the long-haul tier already covers the whole state, so re-extracting its
+    classes inside the MSA duplicated 121,147 OSM ways into parallel edges."""
+    lh = set(cfg["tiers"]["long_haul"]["highway_classes"])
+    local = set(roads.local_only_classes(cfg))
+    assert lh.isdisjoint(local)
+
+
+def test_local_extraction_still_adds_street_detail(cfg):
+    """Disjointness must not be achieved by extracting nothing."""
+    local = set(roads.local_only_classes(cfg))
+    assert "residential" in local
+    assert len(local) >= 3
+
+
+def test_tiers_together_cover_the_declared_local_detail(cfg):
+    lh = set(cfg["tiers"]["long_haul"]["highway_classes"])
+    assert lh | set(roads.local_only_classes(cfg)) == set(
+        cfg["tiers"]["local"]["highway_classes"])

@@ -38,6 +38,10 @@ study_area:
     Rockwall: "397"
     Tarrant:  "439"
     Wise:     "497"
+  # Centroid of the 11 study counties, computed via TIGERweb 2026-09-24.
+  # Scope 2.2 measures the 600-mile store radius and the 10-hour served
+  # set from here, so it is a parameter, not a convenience.
+  msa_centroid_wgs84: [-96.9704, 32.8495]
   context_buffer_miles: 15        # scope 2.1 - prevents truncated drive-time polygons
   store_search_radius_miles: 600  # scope 2.2
 

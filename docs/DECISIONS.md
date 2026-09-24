@@ -963,3 +963,134 @@ The user picks. On a pick this entry gets a superseding `DECIDED` entry naming t
 `config/network.yaml → source_priority` is rewritten to match. If B is chosen, a companion
 decision is needed on **ODbL share-alike and what the portfolio repo may distribute** — likely
 "publish maps and figures, do not publish the network dataset."
+
+---
+
+## D-004 (resolved, 2026-09-24) · Network dataset source — OpenStreetMap via Geofabrik
+
+- **Status:** `DECIDED` — supersedes the `OPEN` status on the D-004 stub and on the
+  2026-09-24 investigation entry above, both of which are left in place.
+- **Decided by:** the user, 2026-09-24, choosing Option B from the investigation.
+
+**Decision.** `RoadNetwork_ND` is built from **OpenStreetMap state extracts via Geofabrik**
+(S04). TxDOT RHiNo (S03) stays ingested as an independent validation source, not as a network
+source. `config/network.yaml → build.source_priority` is `[S04, S03]`.
+
+**Extent.** Sixteen states, computed rather than assumed: those intersecting a 600-mile geodesic
+radius of the 11-county MSA centroid (-96.9704, 32.8495), which is the radius scope §2.2 uses to
+compile the store set. Texas, Oklahoma, Louisiana, Arkansas, New Mexico, Kansas, Missouri,
+Mississippi, Colorado, Alabama, Tennessee, Kentucky, Florida, Illinois, Iowa, Nebraska. 3.8 GB.
+
+The scope guessed "Texas, Oklahoma, Louisiana, Arkansas, New Mexico, and possibly parts of
+Kansas, Missouri, Mississippi, Colorado" — nine. The measured answer is sixteen; Florida,
+Illinois, Iowa, Nebraska, Tennessee and Kentucky all reach inside 600 miles of DFW.
+
+**What was accepted along with it.** The known costs in the investigation entry are now
+liabilities of the delivered network, not hypotheticals:
+
+1. **Turn restrictions are not modelled.** They live in OSM relations, which the GDAL OSM driver
+   exposes only under `other_relations`. Deferred and documented. They shift a route by seconds
+   at an intersection and do not move a 10-hour drive time or a 60/120/240-minute freight band.
+2. **Truck restrictions are partial.** OSM's `hgv`, `maxheight`, `maxweight` where tagged;
+   elsewhere the functional-class fallback in `network.yaml`. Neither free source has real truck
+   restrictions, so this is not a cost of choosing OSM over RHiNo — it is a cost of not buying
+   StreetMap Premium.
+3. **ODbL obligations.** See D-018.
+
+**Two things the build changed that the config had wrong for RHiNo**, recorded here because they
+came out of acting on this decision rather than out of the comparison:
+
+- **Connectivity is `ANY_VERTEX`, not `END_POINT`.** GDAL returns whole OSM ways, not ways split
+  at junctions, so `END_POINT` would join them only where one way happens to end on another's
+  endpoint — shredding the network. Ways that genuinely meet share an identical node and ways
+  that merely cross do not, so vertex coincidence already encodes grade separation. That is why
+  `elevation: NONE` is correct here even though the reason in the old comment ("RHiNo has no
+  reliable z-level field") no longer applies.
+- **Truck travel time needed its own cost attribute.** See D-019.
+
+**Closing note on the recommendation.** The recommendation named Option D (StreetMap Premium) as
+better if licensed. It was not taken up, so the turn-restriction and truck-restriction
+limitations above stand and belong in the methodology report's limitations section rather than
+being discovered by a reader.
+
+---
+
+## D-018 · ODbL share-alike — what this project may publish
+
+- **Date raised:** 2026-09-24 · **Status:** `DECIDED`
+- **Scope ref:** §6.2, §12 (deliverables), D-004
+
+**Question.** OpenStreetMap is licensed ODbL 1.0. What does that oblige, given this is portfolio
+work whose whole point is to be published?
+
+**The distinction that matters.** ODbL separates a *Derivative Database* from a *Produced Work*.
+
+- A **Produced Work** is something made *from* the data — a map image, a figure, a PDF report, a
+  dashboard screenshot. It requires **attribution** and nothing more.
+- A **Derivative Database** is the data itself, adapted — a reprojected road layer, a network
+  dataset built from it, a geodatabase containing either. Publishing one triggers **share-alike**:
+  it must itself be offered under ODbL.
+
+**Decision.**
+
+1. **Attribution appears on every published map, figure, StoryMap and dashboard**:
+   `© OpenStreetMap contributors, ODbL 1.0`. Recorded in
+   `sources.yaml → road_network.attribution` so it is a config value, not a habit.
+2. **`Roads`, `RoadNetwork_ND` and the geodatabase are NOT published.** They are already outside
+   the repo (`config/paths.yaml`, `data/` gitignored), so this costs nothing and is the current
+   behaviour — but it is now a decision rather than an accident, because "just zip the GDB into
+   the portfolio repo" is an obvious-looking convenience that would relicense the whole thing.
+3. **Analytical outputs are fine.** `CandidateSites`, `SiteScores`, `Shortlist`, the service-area
+   polygons and the OD tables are produced *using* OSM, not adaptations *of* it — none of them
+   contain OSM geometry or attributes. They carry attribution as a courtesy but not as an
+   obligation. Service-area polygons are the closest call, since their shape is derived from OSM
+   geometry; they are treated as Produced Works and attributed.
+4. **The pipeline stays publishable.** Code, config and the ND *template XML* describe how to
+   rebuild the network from a Geofabrik download. They contain no OSM data, so the repository
+   remains MIT-or-similar and reproducible without redistributing anything.
+
+**Why not simply publish everything under ODbL.** Share-alike would reach the geodatabase, which
+also holds parcel, flood, wetland and CAD data from sources with their own terms. Mixing them
+under one copyleft licence is a claim this project has no standing to make.
+
+**What would reopen this.** Publishing the network dataset itself, packaging the GDB as a
+deliverable, or a switch to StreetMap Premium (whose terms are more restrictive again — it may
+not be redistributed at all).
+
+---
+
+## D-019 · Truck travel time is a separate cost attribute
+
+- **Date raised:** 2026-09-24 · **Status:** `DECIDED`
+- **Scope ref:** §4.6
+
+**The gap.** Scope §4.6 specifies the Truck travel mode as "impedance `Minutes`" and, in the same
+sentence, "speeds capped at 65 mph on freeways, 45 mph arterials, 25 mph locals". Those cannot
+both hold of a single `minutes` column: either it holds free-flow time, in which case the caps do
+nothing, or it holds capped time, in which case the `Driving` mode's 15/30/45-minute labour-shed
+isochrones are silently computed at truck speeds and come out far too small.
+
+This is a specification gap, not an error in the data.
+
+**Decision.** Two cost attributes.
+
+| Attribute | Field | Used by |
+|---|---|---|
+| `Minutes` | `minutes` = miles / posted-or-default mph × 60 | `Driving` |
+| `TruckMinutes` | `truck_minutes` = miles / capped mph × 60 | `Truck` |
+
+`Roads` gains `truck_speed_mph` and `truck_minutes` (`config/schema.yaml`), and
+`network.yaml → travel_modes.Truck.impedance` becomes `TruckMinutes`.
+
+**Why this way round.** The alternative — one column holding truck time, with Driving accepting
+it — would be cheaper and wrong in the direction that matters: the labour-shed criteria (C01–C03)
+depend on the 30-minute Driving service area, and shrinking it would understate every candidate's
+workforce catchment without anything looking broken.
+
+**Guard.** `tests/test_roads.py` asserts the two modes reference different fields, that truck
+speed never exceeds the posted speed, and that truck minutes are never less than driving minutes
+for the same segment.
+
+**Scope amendment.** §4.6's Truck mode line should read "impedance `TruckMinutes`". Recorded here
+rather than edited into the scope, per the project's convention that `docs/DECISIONS.md` carries
+amendments.

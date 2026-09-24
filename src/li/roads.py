@@ -167,6 +167,25 @@ def where_clause(classes: Sequence[str]) -> str:
     return "highway IN (%s)" % vals
 
 
+def local_only_classes(cfg: dict | None = None) -> list[str]:
+    """The classes the local tier must add, excluding what long-haul covers.
+
+    The two tiers overlap by design in the config - `local` declares the full
+    detail the study area needs, which necessarily includes motorways. But the
+    long-haul tier already covers the whole state, so extracting those classes
+    again inside the MSA duplicates them: 121,147 OSM ways appeared in both
+    tiers before this. Duplicate coincident edges do not break a solve, they
+    just quietly double the network there and create parallel paths between the
+    same junctions.
+
+    Subtracting here rather than in the config keeps `local.highway_classes`
+    readable as a statement of intent.
+    """
+    cfg = cfg or road_cfg()
+    lh = set(cfg["tiers"]["long_haul"]["highway_classes"])
+    return [c for c in cfg["tiers"]["local"]["highway_classes"] if c not in lh]
+
+
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
@@ -393,10 +412,11 @@ def extract_all(cfg=None, net=None, out_dir=None, slugs=None):
             layer_name="roads", cfg=cfg, net=net))
 
     lo = cfg["tiers"]["local"]
+    local_classes = local_only_classes(cfg)
     for slug in lo.get("states", ["texas"]):
         pbf = raw / ("%s-latest.osm.pbf" % slug)
         results.append(extract_state(
-            pbf, out_dir / ("%s_local.gpkg" % slug), lo["highway_classes"],
+            pbf, out_dir / ("%s_local.gpkg" % slug), local_classes,
             bbox_wgs84=lo["bbox_wgs84"], layer_name="roads", cfg=cfg, net=net))
 
     log.info("  extracted %d layers, %d segments total",
@@ -717,3 +737,93 @@ def travel_mode(name, net=None):
         "id": name,
     }
     return arcpy.nax.TravelMode(json.dumps(spec))
+
+
+# ---------------------------------------------------------------------------
+# Route validation (scope §14)
+# ---------------------------------------------------------------------------
+
+def validate_routes(gdb=None, net=None, mode="Driving"):
+    """Solve known city-pair routes and compare against reference figures.
+
+    This is a smoke test for the network, not an accuracy certification. It is
+    looking for the failures that are otherwise invisible:
+
+      * a network that does not connect at all - the solve fails outright;
+      * one-way logic inverted, or speeds in the wrong units - times come out
+        wildly wrong rather than slightly wrong;
+      * a missing state - the out-of-state routes cannot be reached, while the
+        in-state ones still look perfect.
+
+    Four of the seven references cross a state line for that last reason.
+    """
+    _require_arcpy()
+    import arcpy
+
+    net = net or config.network()
+    gdb = gdb or config.paths()["gdb"]
+    nd = gdb + "\\" + net["build"]["dataset"] + "\\" + net["build"]["nd_name"]
+    spec = net["validation_routes"]
+    tol = float(spec["tolerance_pct"])
+    target_crs = int(config.schema()["meta"]["crs"])
+    sr_in = arcpy.SpatialReference(4326)
+    sr_out = arcpy.SpatialReference(target_crs)
+
+    tm = travel_mode(mode, net)
+    results = []
+    log.info("=" * 68)
+    log.info("route validation - %s mode, tolerance +/-%.0f%%", mode, tol)
+    log.info("  %-26s %9s %9s %9s %9s  %s",
+             "route", "miles", "ref", "minutes", "ref", "verdict")
+
+    for spec_route in spec["routes"]:
+        rt = arcpy.nax.Route(nd)
+        rt.travelMode = tm
+        rt.timeUnits = arcpy.nax.TimeUnits.Minutes
+        rt.distanceUnits = arcpy.nax.DistanceUnits.Miles
+        rt.routeShapeType = arcpy.nax.RouteShapeType.NoGeometry
+
+        with rt.insertCursor(arcpy.nax.RouteInputDataType.Stops,
+                             ["SHAPE@", "Name"]) as cur:
+            for label, lonlat in (("from", spec_route["from"]),
+                                  ("to", spec_route["to"])):
+                pt = arcpy.PointGeometry(arcpy.Point(*lonlat), sr_in).projectAs(sr_out)
+                cur.insertRow([pt, label])
+
+        solved = rt.solve()
+        if not solved.solveSucceeded:
+            msg = "; ".join(str(m) for m in solved.solverMessages(
+                arcpy.nax.MessageSeverity.All))[:160]
+            log.warning("  %-26s %9s %9s %9s %9s  FAIL  %s",
+                        spec_route["name"], "-", spec_route["ref_miles"],
+                        "-", spec_route["ref_minutes"], msg)
+            results.append({"name": spec_route["name"], "solved": False,
+                            "miles": None, "minutes": None, "message": msg})
+            continue
+
+        miles = minutes = None
+        with solved.searchCursor(arcpy.nax.RouteOutputDataType.Routes,
+                                 ["Total_Miles", "Total_Minutes"]) as c:
+            for row in c:
+                miles, minutes = float(row[0]), float(row[1])
+
+        dm = 100.0 * (miles - spec_route["ref_miles"]) / spec_route["ref_miles"]
+        dt = 100.0 * (minutes - spec_route["ref_minutes"]) / spec_route["ref_minutes"]
+        ok = abs(dm) <= tol and abs(dt) <= tol
+        log.info("  %-26s %9.1f %9s %9.1f %9s  %s (%+.0f%% mi, %+.0f%% min)",
+                 spec_route["name"], miles, spec_route["ref_miles"],
+                 minutes, spec_route["ref_minutes"],
+                 "ok  " if ok else "OFF ", dm, dt)
+        results.append({"name": spec_route["name"], "solved": True,
+                        "miles": round(miles, 1), "minutes": round(minutes, 1),
+                        "ref_miles": spec_route["ref_miles"],
+                        "ref_minutes": spec_route["ref_minutes"],
+                        "pct_miles": round(dm, 1), "pct_minutes": round(dt, 1),
+                        "within_tolerance": ok})
+
+    n_ok = sum(1 for r in results if r.get("within_tolerance"))
+    n_solved = sum(1 for r in results if r["solved"])
+    log.info("  %d/%d solved, %d/%d within tolerance",
+             n_solved, len(results), n_ok, len(results))
+    return {"mode": mode, "solved": n_solved, "within_tolerance": n_ok,
+            "total": len(results), "routes": results}

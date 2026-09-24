@@ -26,6 +26,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--download-only", action="store_true")
     ap.add_argument("--extract-only", action="store_true")
+    ap.add_argument("--load-only", action="store_true")
+    ap.add_argument("--build-only", action="store_true")
     ap.add_argument("--states", help="comma-separated slugs, default all 16")
     args = ap.parse_args()
 
@@ -41,6 +43,19 @@ def main() -> int:
     log.info("  %d states, %.1f GB to fetch", len(slugs),
              sum(s["mb"] for s in cfg["states"]) / 1000.0)
     log.info("  licence: %s", cfg["license"])
+
+    if args.build_only:
+        r = roads.build_network(run_id=run_id)
+        log.info("built %s over %s segments: %s", r["nd"],
+                 format(r["segments"], ","), ", ".join(r["attributes"]))
+        return 0
+
+    if args.load_only:
+        roads.load_roads(run_id=run_id, cfg=cfg)
+        r = roads.build_network(run_id=run_id)
+        log.info("built %s over %s segments: %s", r["nd"],
+                 format(r["segments"], ","), ", ".join(r["attributes"]))
+        return 0
 
     if not args.extract_only:
         roads.download_extracts(slugs=slugs, cfg=cfg)
