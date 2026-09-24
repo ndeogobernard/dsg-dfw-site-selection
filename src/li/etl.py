@@ -313,8 +313,13 @@ def combine_geojson_pages(paths: Sequence[Path], out_dir: Path,
 
 def geojson_to_feature_class(paths: Sequence[Path], out_gdb: str, out_name: str,
                              target_crs: int, interim_dir: Path | None = None,
-                             chunk: int = 50) -> str:
-    """Convert downloaded GeoJSON pages into one projected feature class."""
+                             chunk: int = 50, geometry_type: str = "POLYGON") -> str:
+    """Convert downloaded GeoJSON pages into one projected feature class.
+
+    `geometry_type` must match the source: JSONToFeatures writes an empty class
+    of the requested type rather than failing when they disagree, so a wrong
+    value here produces a silently empty result.
+    """
     _require_arcpy()
     if interim_dir is not None and len(paths) > chunk:
         paths = combine_geojson_pages(paths, interim_dir / out_name, chunk)
@@ -325,7 +330,7 @@ def geojson_to_feature_class(paths: Sequence[Path], out_gdb: str, out_name: str,
         tmp = f"{scratch}_{i:04d}"
         if arcpy.Exists(tmp):
             arcpy.management.Delete(tmp)
-        arcpy.conversion.JSONToFeatures(str(p), tmp, "POLYGON")
+        arcpy.conversion.JSONToFeatures(str(p), tmp, geometry_type)
         parts.append(tmp)
         if (i + 1) % 5 == 0:
             log.info("    converted %d/%d", i + 1, len(paths))

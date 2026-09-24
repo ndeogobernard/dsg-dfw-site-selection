@@ -70,12 +70,14 @@ spokes:
       - {from: src/li/gdb.py,             to: src/li/gdb.py}
       - {from: src/li/etl.py,             to: src/li/etl.py}
       - {from: src/li/qaqc.py,            to: src/li/qaqc.py}
+      - {from: src/li/layers.py,          to: src/li/layers.py}
+      - {from: src/li/screening.py,       to: src/li/screening.py}
       - {from: tests/test_schema.py,      to: tests/test_schema.py}
       - {from: tests/test_etl_qaqc.py,    to: tests/test_etl_qaqc.py}
+      - {from: tests/test_screening.py,   to: tests/test_screening.py}
       - {from: LICENSE,                   to: LICENSE}
     pending:
       - toolbox/models/LocationIntelligence_Models.tbx   # scope 6.4
-      - src/li/screening.py
       - src/li/network.py
       - src/li/workforce.py
       - src/li/criteria.py

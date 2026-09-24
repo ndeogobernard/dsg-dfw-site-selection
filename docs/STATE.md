@@ -3,109 +3,155 @@
 > Snapshot, not history. Overwrite this file at each checkpoint.
 > Narrative belongs in `docs/SESSION_LOG.md`; decisions in `docs/DECISIONS.md`.
 
-**Last updated:** 2026-09-23 · main · <https://github.com/ndeogobernard/dsg-dfw-site-selection>
+**Last updated:** 2026-09-24 · main · <https://github.com/ndeogobernard/dsg-dfw-site-selection>
 
 ---
 
 ## ⏸ Stopped here, by request
 
-**Tarrant is ingested. The other ten counties are deliberately not.** Open
-`pro/DFW_DSG.aprx` to see 758,633 real parcels on the map before deciding what comes next.
+**Vertical slice Part 1 is complete. Parts 2 and 3 are deliberately not started.**
+
+Open `pro/DFW_DSG.aprx` and look at **138 candidate sites** over Tarrant before deciding
+whether to calibrate thresholds or move to the network dataset.
 
 ---
 
 ## Current milestone
 
-**Week 3 of 8** (scope §11). Full tracker with exit criteria: **`docs/PLAN.md`**.
+**Week 4 of 8** (scope §11). Full tracker with exit criteria: **`docs/PLAN.md`**.
 
 | Milestone | Status |
 |---|---|
 | W2 — geodatabase schema built via tool | ✅ |
 | W3 — ETL and QA/QC tools written | ✅ tools 2 and 3 |
-| W3 — all layers loaded | 🔄 **Tarrant only**; 10 counties pending, other sources untouched |
-| W2 — ERD + data dictionary v1 | ⏸ deferred — schema is now stable enough to write them |
+| W3 — all layers loaded | 🔄 **Tarrant only**; 10 counties pending |
+| W4 — screening tool + CandidateSites | ✅ **Tarrant, 138 candidates** |
+| W2 — ERD + data dictionary v1 | ⏸ deferred — schema is stable and has now met real data |
+| W5 — network dataset, service areas, OD | ⬜ Part 2, not started |
 
 ---
 
 ## Done this session
 
-- **Schema reconciled** against verified source data and rebuilt clean — D-008, D-009, D-013.
-  12 domains, 6 attribute rules, 24 criterion columns, `Parcels` subtypes on `zoning_conf_st`.
-- **Tools 2 and 3** — `IngestAndStandardize`, `RunQAQC`. Decisions live in pure arcpy-free
-  functions; the arcpy half only executes them.
-- **All 10 remaining CADs probed.** None ingested. Only Tarrant is `verified`.
-- **Tarrant pilot: 758,633 / 758,633 loaded. 10 Pass, 1 Warning, 0 Fail.**
-- `docs/tutorial/04-ingest-and-qaqc.md` filled from the real run (Track B still unperformed).
-- Tests **26 → 85**, all arcpy-free. Both tool spokes re-synced and pushed, CI green.
+- **Seven physical-filter layers ingested** for the Tarrant slice, each with a
+  `DataSourceRegistry` row and a QA check.
+- **`ScreenCandidateSites` built and run** — physical-only (D-013), every threshold from
+  `config/screening.yaml` at scope defaults, untightened.
+- **758,633 parcels → 138 candidates.** 137 `Pass`, 1 `Review`. QA 8 Pass / 0 Warning / 0 Fail.
+- **D-015, D-016, D-017** recorded. Five service-side defects fixed in config, not worked around.
+- All nine layers added to `pro/DFW_DSG.aprx`. Tests still **121**, all arcpy-free.
 
-## Pilot results — Tarrant
+## Layers loaded — Tarrant slice (county + 2 mi)
 
-| Check | Result |
-|---|---|
-| Features loaded | **758,633** — exactly the source count |
-| CRS | EPSG:6584 ✅ |
-| Null / invalid geometry | 0 / 0 ✅ |
-| Duplicate `parcel_id` | **0** ✅ (after the ACCOUNT fix) |
-| Null published acreage / land value | 0.00% / 0.00% ✅ |
-| Zero land value | **8.54%** — exempt/ROW, flagged `ZeroExempt`, excluded from C10 |
-| Acreage disagreement > 5% | ⚠️ **25.20%** (191,192 parcels) |
-| Attribute rules fired on insert | `acres` 100%, `land_val_per_acre` 100%, `acres_delta_pct` 84% |
+| Layer | Loaded | Note |
+|---|---|---|
+| `Parcels` | 758,633 | earlier session |
+| `FloodZones_NFHL` | 26,850 | `page_size: 250` — NFHL 500s above that |
+| `Wetlands_NWI` | 37,409 | tiled — service times out past offset 2000 |
+| `IndustrialBuildings` | 532,471 | tiled |
+| `Interchanges` | 805 | derived from TxDOT F_SYSTEM 1–2 crossings |
+| `LandCover_NLCD` | 3,134 × 3,180 | MRLC WCS, subset 4326 → `outputCrs` 5070 |
+| `Slope_pct` | 7,580 × 7,940 | 3DEP `exportImage`, 64 tiles, z-factor 3.28084 |
+| `WaterCCN` | 127 | water only — no sewer attribute |
 
-Runtime **93 min** — 7 min downloading, the rest conversion and the row-by-row append.
-`acres_published ≥ 80` → **884 parcels**, matching the server-side recon count exactly.
+## Screening funnel — Tarrant, run `20260924_0020_screen`
 
-## CAD status — only Tarrant is cleared
+| # | Filter | Threshold | Removed | Remaining |
+|---|---|---|---|---|
+| | parcels in county | | | 758,633 |
+| 1 | acreage ≥ min_acres | 80 | 757,749 | 884 |
+| 2 | floodway coverage | 0 | 151 | 733 |
+| 3 | SFHA coverage | 20 | 131 | 602 |
+| 4 | wetland coverage | 10 | 88 | 514 |
+| 5 | mean slope | 5 | 113 | 401 |
+| 6 | developed land cover | 30 | 184 | 217 |
+| 7 | water CCN service | true | 62 | 155 |
+| 8 | interchange proximity | 6.73 mi | 17 | **138** |
+| — | sewer CCN service | **SKIPPED** | — | — |
 
-| Mode | Counties |
-|---|---|
-| **AUTO, verified** | Tarrant (758,633) |
-| **AUTO, skeleton** | Denton (384,308, 71 fields, has `cad_zoning`); Dallas (695,446, **5 fields**) |
-| **MANUAL, not located** | Collin, Ellis, Hunt, Johnson, Kaufman, Parker, Rockwall, Wise |
+Acreage does 99.9% of the work. After it, **developed land cover (184)** and **floodway (151)**
+are the binding constraints — large parcels in a built-out county tend to be built on or in the
+floodplain. Interchange proximity removes only 17, so D-015's approximation is not what decides
+this list.
 
 ---
 
 ## Blocked / needs decision
 
-1. **D-014 — Dallas needs a DCAD roll join.** `CurrentDcadParcels` is geometry + account only;
-   no land value at all. C10 cannot be computed for the second-largest county from the parcel
-   layer. Four options recorded; recommendation is to obtain the roll and join on `GIS_Acct`.
-2. **Eight counties have no located parcel source.** They may need hand-fetching. Their
-   portals resolve but whether they publish a parcel layer is unconfirmed.
-3. **The 25.20% acreage disagreement needs a view.** D-008 screens on the published figure;
-   that is still the right call, but a quarter of parcels disagreeing by >5% belongs in the
-   methodology report rather than in a log.
-4. **Census API key** — free, instant, <https://api.census.gov/data/key_signup.html>.
-   Blocks C01/C02 and the C24010 block-group question.
-5. **Fort Worth zoning** — still no authoritative service found.
-6. D-001 – D-007 and D-011 still OPEN.
-
----
+1. **User review of the 138 candidates** — calibrate thresholds before Part 2, or accept.
+2. **D-016 — sewer CCN.** No statewide source. User is searching TCEQ, TWDB, NCTCOG, PUC.
+   Every candidate carries `sewer_status = "Unknown - pending D-016 search"`. Stays OPEN.
+3. **D-014 — Dallas needs a DCAD roll join.** `CurrentDcadParcels` is geometry + account only.
+   C10 cannot be computed for the second-largest county from the parcel layer.
+4. **Eight counties have no located parcel source** — Collin, Ellis, Hunt, Johnson, Kaufman,
+   Parker, Rockwall, Wise.
+5. **Water CCN uses `HAVE_THEIR_CENTER_IN`** — a parcel straddling a boundary is judged by its
+   centroid. Fine for a screen, wrong for a site decision; revisit on the shortlist.
+6. **25.20% acreage disagreement** (Tarrant, >5% published vs computed) belongs in the
+   methodology report, not a log.
+7. **Census API key** — free, instant, <https://api.census.gov/data/key_signup.html>.
+   Blocks C01/C02.
+8. **Fort Worth zoning** — still no authoritative service found.
+9. D-001 – D-007 and D-011 still OPEN.
 
 ## Next 1–3 actions
 
-1. Look at Tarrant in `pro/DFW_DSG.aprx`, then decide: more counties, or move to the network
-   dataset and screening with one county as a vertical slice.
-2. Resolve **D-014** — it decides whether Dallas can be scored at all.
-3. ERD and data dictionary are now unblocked; the schema has met real data.
+1. Review the 138 candidates in `pro/DFW_DSG.aprx`; decide calibration.
+2. **Part 2** — network dataset, service areas, OD cost matrix.
+3. ERD and data dictionary are unblocked.
 
 ---
 
 ## Gotchas
 
+**Screening and rasters**
+
+- **Zone rasterization keeps only cells whose CENTRE is inside the zone.** At a coarse cell a
+  narrow parcel measures as *absent*, not zero — 112 of 884 here (D-017). Set
+  `raster_zonal.processing_cell_ft`. An unmeasurable metric is `Review`, so this never admits a
+  bad parcel — it quietly fills the list with unscreened ones.
+- **A raster written by `save()` has no statistics** — `.minimum`/`.maximum` are `None` until
+  `CalculateStatistics`.
+- **`MakeImageServerLayer` + `CopyRaster` can silently return a 1 × 1 raster.** Use
+  `exportImage` with an explicit bbox and size, and assert the result is bigger than a stub.
+- **3DEP gateway-times-out (~90s) on tiles well inside its declared 8000 px cap.** The cap is a
+  limit on the answer, not a promise it can compute it. 1024 px tiles; retry on 504.
+- **3DEP elevation is in METRES, EPSG:6584 x/y in US FEET** — without the z-factor every slope
+  is understated by 3.28×.
+- **MRLC publishes the NLCD coverage in EPSG:3857 and GeoServer cannot WRITE Pseudo-Mercator.**
+  Subset in 4326, demand 5070 back with `outputCrs`.
+- **`Intersect` with POINT output emits MULTIPOINT.** Inserting that into a point class fails as
+  a bare `AttributeError: __len__` from inside `insertRow`. `MultipartToSinglepart` first.
+- **Dissolve a class layer before `TabulateIntersection`** — overlapping polygons (NFHL floodway
+  inside SFHA) sum past 100%.
+
+**Ingest and services**
+
+- **FEMA NFHL** 500s above `page_size` 250. **FWS wetlands** times out past `resultOffset` 2000
+  — tile instead. ArcGIS REST `maxRecordCount` is 1,000; use `returnCountOnly` for totals.
+- **`JSONToFeatures` has ~1–2s fixed overhead per call** — concatenate pages first.
+- **ArcGIS Hub search is not an inventory.** It returned Buncombe County NC and the American
+  Red Cross for Texas parcel queries. Always confirm the publishing organisation.
+- **Check key uniqueness before choosing a `parcel_id`.** `TAXPIN` is the survey abstract tract
+  (98.44% unique); `ACCOUNT` is the key. A plausible field name is not evidence.
+
+**Geodatabase and Pro**
+
 - Attribute rules need **GlobalIDs** first (`ERROR 002710`). Subtype fields must be **SHORT/LONG**.
 - **A class with attribute rules cannot be written outside an edit session** — wrap inserts in
   `arcpy.da.Editor`. The session is also what makes the rules fire on insert.
-- **Check key uniqueness before choosing a `parcel_id`.** `TAXPIN` is the survey abstract tract
-  (98.44% unique, up to 8 parcels per tract); `ACCOUNT` is the key. A plausible field name is
-  not evidence.
-- **`JSONToFeatures` has ~1–2s fixed overhead per call** — concatenate pages first.
-- ArcGIS REST `maxRecordCount` is 1,000 — paging is mandatory; use `returnCountOnly` for totals.
-- **ArcGIS Hub search is not an inventory.** It returned Buncombe County NC and the American
-  Red Cross for Texas parcel queries. Always confirm the publishing organisation.
 - `arcpy.da.Describe()` does **not** expose topology rules — use `ExportXMLWorkspaceDocument`.
 - `arcpy.mp` **cannot create** an `.aprx`; Pro 3.5 has no `CreateToolbox`.
 - `Layer` has no `getExtent()` in Pro 3.5 — use `arcpy.Describe(fc).extent`.
-- `arcgispro-py3` is **read-only** — clone before installing.
+- **`addDataFromPath` fails with "Possible credentials issue"** when the path omits the feature
+  dataset — it is a path error, not an authentication one.
+
+**Environment**
+
+- `arcgispro-py3` is **read-only** — clone before installing. `pytest` lives in the ArcGIS env,
+  not the system Python.
 - PowerShell `Set-Content -Encoding utf8` **mangles UTF-8 punctuation** — edit text files in
   Python with explicit `encoding="utf-8"`.
 - Long heredocs via Bash fail with `ENAMETOOLONG`; write files directly.
+- **Piping a background job to `tail` hides all progress** until it exits — log to a file and
+  watch that instead.

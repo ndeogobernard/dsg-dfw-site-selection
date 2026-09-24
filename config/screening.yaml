@@ -59,8 +59,57 @@ zoning:
   # always shows how much entitlement uncertainty it carries.
   non_confirmed_screen_status: Review
 
+# --- Sewer CCN (D-016, OPEN) --------------------------------------------------
+# No statewide sewer-CCN feature service was located. The rule below is NOT
+# applied as a hard filter while D-016 is open: dropping every parcel for want
+# of a dataset we could not obtain would silently empty the candidate pool for
+# a reason that has nothing to do with the land.
+#
+# Instead every candidate carries sewer_status, and the filter is reported as
+# SKIPPED in the funnel so its absence is visible rather than assumed away.
+sewer:
+  apply_as_hard_filter: false          # flip to true once a source is found
+  status_when_unknown: "Unknown - pending D-016 search"
+  searching: [TCEQ, TWDB, NCTCOG, "PUC of Texas GIS download"]
+
+# --- Interchange proximity (D-015) --------------------------------------------
+# Screening uses STRAIGHT-LINE distance from the parcel centroid to the nearest
+# interchange. True network drive-time is criterion C04 in Part 3; running a
+# network solve against every parcel in the county just to screen would cost
+# far more than it buys, and the threshold only has to be approximately right
+# to keep a candidate in play.
+#
+# max_straight_line_miles is DERIVED, not typed:
+#   max_truck_min_to_interchange / 60 * assumed_speed_mph / circuity_factor
+# 15 min / 60 * 35 mph / 1.3 = 6.73 miles
+interchange_proximity:
+  method: straight_line
+  assumed_speed_mph: 35       # arterial approach speed for a truck, not freeway
+  circuity_factor: 1.3        # road distance / straight-line distance, typical urban
+  note: >-
+    The circuity factor makes the straight-line radius deliberately SMALLER
+    than the raw distance a 15-minute drive covers, because roads do not run
+    straight. Erring the other way would admit parcels that cannot actually
+    reach an interchange in time.
+
 # --- NLCD classes counted as "already built out" (5.1 max_developed_pct) ---
 nlcd_developed_classes: [23, 24]      # 23 = Developed Medium, 24 = Developed High
+
+# --- Zone rasterization for the raster-based metrics (slope, land cover) ---
+# Both TabulateArea and ZonalStatisticsAsTable convert each parcel to cells and
+# keep only the cells whose CENTRE falls inside it. At NLCD's native ~83.5 ft
+# cell that silently drops narrow parcels entirely: 112 of the 884 acreage
+# survivors came back with no row at all, and an unmeasurable metric is Review,
+# so a third of the candidate list was flagged for a tabulation artefact rather
+# than anything about the land. Many 80+ acre parcels here are corridor-shaped
+# - floodplain, ROW, rail - so this is the common case, not an edge case.
+#
+# A finer processing cell delineates the zone better. It does NOT invent
+# detail: the classes still come from the 30 m product, resampled nearest, so
+# the source resolution remains the real limit on how precisely a narrow
+# parcel's land cover is known.
+raster_zonal:
+  processing_cell_ft: 30
 
 # --- SFHA zones counted toward max_sfha_pct ---
 sfha_zones: [A, AE, AH, AO]

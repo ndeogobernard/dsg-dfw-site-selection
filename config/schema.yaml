@@ -512,6 +512,10 @@ feature_classes:
       - {name: zoning_class,  type: TEXT,   length: 25,  alias: Zoning Class, domain: dm_ZoningClass}
       - {name: screen_status, type: TEXT,   length: 10,  alias: Screen Status, domain: dm_ScreenStatus}
       - {name: screen_reason, type: TEXT,   length: 200, alias: First Failing Rule}
+      # D-016 is OPEN: no statewide sewer-CCN source was located, so sewer is
+      # not a hard filter. Every candidate records what is actually known
+      # about it rather than the rule being silently dropped.
+      - {name: sewer_status,  type: TEXT,   length: 40,  alias: Sewer Service Status}
       - {name: centroid_x,    type: DOUBLE, alias: Centroid X}
       - {name: centroid_y,    type: DOUBLE, alias: Centroid Y}
       - {name: run_id,        type: TEXT,   length: 40,  alias: Run ID, nullable: false}

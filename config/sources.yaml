@@ -41,6 +41,202 @@ study_area:
   context_buffer_miles: 15        # scope 2.1 - prevents truncated drive-time polygons
   store_search_radius_miles: 600  # scope 2.2
 
+# =============================================================================
+# Physical-filter layers for the Tarrant vertical slice.
+#
+# Every endpoint below was probed live on 2026-09-23 and is recorded with the
+# feature count or coverage id observed. `acquisition: AUTO` means
+# IngestAndStandardize can fetch it unattended.
+#
+# The slice is clipped to the Tarrant County boundary plus a small buffer, so
+# a parcel on the county line is still judged against flood, wetland and
+# utility geometry that continues past it.
+# =============================================================================
+
+slice:
+  name: tarrant
+  boundary_service: https://mapit.tarrantcounty.com/arcgis/rest/services/Dynamic/Tarrant_boundary/MapServer/0
+  buffer_miles: 2
+  # WGS84 envelope used for server-side spatial filters: xmin,ymin,xmax,ymax
+  bbox_wgs84: "-97.65,32.45,-96.90,33.10"
+
+physical_layers:
+
+  flood:
+    source_id: S13
+    acquisition: AUTO
+    target: FloodZones_NFHL
+    service: https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28
+    provider: FEMA
+    dataset: National Flood Hazard Layer - Flood Hazard Zones
+    license: Public domain
+    native_crs: 4326
+    observed_features_in_slice: 20965
+    # NFHL advertises maxRecordCount 2000 but returns HTTP 500 for a wide
+    # geometry at 500 rows; 250 is the largest page it actually serves.
+    # The downloader halves and retries anyway, but starting low avoids the
+    # wasted round trips.
+    page_size: 250
+    out_fields: [FLD_ZONE, ZONE_SUBTY, SFHA_TF, DFIRM_ID, STATIC_BFE]
+    # Recon 3: NFHL has no floodway field and SFHA_TF is "T"/"F" TEXT.
+    derive:
+      sfha_flag:     {from: SFHA_TF, equals: "T"}
+      floodway_flag: {from: ZONE_SUBTY, contains: FLOODWAY}
+
+  wetlands:
+    source_id: S14
+    acquisition: AUTO
+    target: Wetlands_NWI
+    service: https://www.fws.gov/wetlandsmapservice/rest/services/Wetlands/MapServer/0
+    provider: US Fish and Wildlife Service
+    dataset: National Wetlands Inventory
+    license: Public domain
+    native_crs: 4326
+    observed_features_in_slice: 18335
+    page_size: 1000
+    # The FWS service serves the first couple of pages for the county envelope
+    # and then times out at resultOffset 2000, at any page size. Tiling keeps
+    # every request's extent small and its offset shallow.
+    tiles: 8
+    max_offset: 2000
+    # Field names carry a "Wetlands." prefix because the layer is a join.
+    out_fields: ["Wetlands.ATTRIBUTE", "Wetlands.WETLAND_TYPE", "Wetlands.ACRES"]
+    field_map:
+      attribute:    "Wetlands.ATTRIBUTE"
+      wetland_type: "Wetlands.WETLAND_TYPE"
+
+  water_ccn:
+    source_id: S19
+    acquisition: AUTO
+    target: WaterCCN
+    service: https://mapit.tarrantcounty.com/arcgis/rest/services/Transportation/WaterUtilityProvider2025/MapServer/0
+    provider: Tarrant County GIS (PUC of Texas CCN data)
+    dataset: Water Utility Providers 2025 (CCN bounded service areas)
+    license: Public domain
+    native_crs: 2276
+    observed_features_in_slice: 127
+    page_size: 1000
+    out_fields: [CCN_NO, UTILITY, CCN_TYPE, STATUS, COUNTY]
+    field_map:
+      ccn_no:       CCN_NO
+      utility_name: UTILITY
+      service_type: CCN_TYPE
+    notes: >-
+      WATER ONLY. Probed 2026-09-23: TYPE is uniformly 1 and CCN_TYPE uniformly
+      "Bounded Service Area" across all 127 features. There is no sewer
+      attribute here.
+
+  sewer_ccn:
+    source_id: S19
+    acquisition: MANUAL
+    target: SewerCCN
+    service: null
+    portal: https://www.puc.texas.gov/industry/water/utilities/gis.aspx
+    provider: Public Utility Commission of Texas
+    dataset: Sewer CCN service areas
+    status: NOT_AVAILABLE_AS_SERVICE
+    notes: >-
+      No statewide sewer-CCN feature service was located on 2026-09-23. TCEQ
+      publishes none, and every sewer-CCN service found belongs to an
+      individual city republishing its own extract (Celina, Anna, Converse,
+      Leander, Waxahachie, Bryan). The authoritative source is the PUC of Texas
+      GIS download, which is a hand-fetched shapefile.
+      CONSEQUENCE: the screening rule require_sewer_ccn_or_within_miles cannot
+      be evaluated in this slice and is reported as SKIPPED rather than silently
+      passed. See D-016.
+
+  land_cover:
+    source_id: S17
+    acquisition: AUTO
+    target: LandCover_NLCD
+    service: https://www.mrlc.gov/geoserver/mrlc_display/wcs
+    protocol: WCS
+    coverage_id: mrlc_display__NLCD_2021_Land_Cover_L48
+    provider: MRLC
+    dataset: NLCD 2021 Land Cover (CONUS)
+    license: Public domain
+    native_crs: 5070            # NLCD is Albers Equal Area CONUS
+    service_crs: 3857           # but GeoServer PUBLISHES the coverage in 3857
+    subsetting_crs: 4326        # so subset in lat/lon and let the server convert
+    output_crs: 5070            # and demand Albers back - see notes
+    subset_axes: [Long, Lat]
+    notes: >-
+      The Esri and USGS NLCD ImageServers both require a token. MRLC's WCS is
+      open and serves the same product; 2021 is the latest Land_Cover_L48
+      coverage published there.
+
+      The coverage is published in EPSG:3857, not in NLCD's native Albers, and
+      GeoServer cannot ENCODE a GeoTIFF in Pseudo-Mercator - a GetCoverage
+      without `outputCrs` returns HTTP 500 "Unable to map projection Popular
+      Visualisation Pseudo Mercator". Subsetting in 4326 and asking for 5070
+      back avoids both problems and returns the grid in an equal-area
+      projection, which is the right one for measuring land-cover proportion.
+
+  elevation:
+    source_id: S16
+    acquisition: AUTO
+    target: Slope_pct
+    service: https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer
+    protocol: ImageServer
+    provider: USGS
+    dataset: 3DEP Elevation (1/3 arc-second)
+    license: Public domain
+    native_crs: 4269
+    pixel_type: F32
+    export_cell_size_m: 10
+    vertical_units: meters       # 3DEP elevation values are METRES
+    z_factor_to_xy: 3.28084      # ...but EPSG:6584 measures x/y in US ft
+    max_export_px: 8000          # the service's own maxImageWidth/Height
+    export_chunk_px: 1024        # ...but it gateway-times-out well below that
+    export_retries: 3
+    notes: >-
+      Exported directly in the analysis CRS via the ImageServer `exportImage`
+      REST endpoint. `MakeImageServerLayer` + `CopyRaster` silently produced a
+      1 x 1 raster here, which would have made every slope unmeasurable and -
+      because an unmeasurable metric is Review, not Pass - quietly flooded the
+      shortlist with unscreened parcels. An explicit bbox and pixel size is
+      verifiable; a layer handle is not.
+
+      Slope is computed in the projected CRS, never in geographic coordinates.
+      The z-factor matters as much: elevation is in metres and x/y in US survey
+      feet, so an unscaled PERCENT_RISE would understate every slope by 3.28x
+      and pass terrain that should fail.
+
+  interchanges:
+    source_id: S05
+    acquisition: AUTO
+    target: Interchanges
+    service: https://services.arcgis.com/KTcxiTD9dsQw4r7Z/arcgis/rest/services/Roadway_Inventory_2023/FeatureServer/0
+    provider: TxDOT
+    dataset: Roadway Inventory 2023 (RHiNo)
+    license: Public domain
+    native_crs: 4326
+    observed_features_statewide: 908702
+    page_size: 1000
+    out_fields: [RIA_RTE_ID, HWY, F_SYSTEM, RU_F_SYSTEM, HSYS]
+    derive:
+      # FHWA functional system: 1 = Interstate, 2 = Other Freeway / Expressway.
+      limited_access_f_system: [1, 2]
+      method: intersections_of_limited_access_centerlines
+
+  buildings:
+    source_id: S18
+    acquisition: AUTO
+    target: IndustrialBuildings
+    service: https://mapit.tarrantcounty.com/arcgis/rest/services/Dynamic/Building_Footprint/MapServer/0
+    provider: Tarrant County GIS
+    dataset: Building footprints
+    license: Public domain
+    native_crs: 2276
+    page_size: 1000
+    tiles: 6
+    max_offset: 2000
+    out_fields: []
+    notes: >-
+      Ingested now for criterion C11 in Part 3. NOT used in screening.
+      Footprints carry no use attribute; industrial classification is derived
+      later and its method must be stated in the report.
+
 sources:
 
   # ---------------------------------------------------------------- Cadastral

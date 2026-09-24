@@ -327,3 +327,79 @@ the same numbers.
 Tarrant is viewable in `pro/DFW_DSG.aprx`. Stopped for review before touching the other ten.
 **D-014** decides whether Dallas can be scored at all. The ERD and data dictionary are now
 unblocked — the schema has met real data.
+
+---
+
+## 2026-09-23/24 — Session 5 · Vertical slice Part 1: physical layers ingested, Tarrant screened
+
+**Goal.** Part 1 of 3 of the Tarrant vertical slice: ingest the physical-filter layers, build
+`ScreenCandidateSites` as a physical-only screen, run the funnel, stop before the network
+dataset.
+
+### What changed
+
+**Seven physical-filter layers ingested for the Tarrant slice** (county + 2 mi buffer), each
+with a `DataSourceRegistry` row and a QA check:
+
+| Layer | Features | Source |
+|---|---|---|
+| `FloodZones_NFHL` | 26,850 | FEMA NFHL |
+| `Wetlands_NWI` | 37,409 | FWS |
+| `IndustrialBuildings` | 532,471 | Tarrant County |
+| `Interchanges` | 805 | TxDOT Roadway Inventory, derived |
+| `LandCover_NLCD` | 3,134 × 3,180 | MRLC WCS |
+| `Slope_pct` | 7,580 × 7,940 | USGS 3DEP, derived |
+| `WaterCCN` | 127 | Tarrant County (earlier run) |
+
+**`ScreenCandidateSites` built and run.** Physical-only per D-013. Thresholds entirely from
+`config/screening.yaml` at scope Appendix B defaults, untightened. 758,633 parcels →
+**138 candidates**, 137 `Pass` / 1 `Review`. QA on `CandidateSites` 8 Pass, 0 Warning, 0 Fail.
+Funnel reconciles exactly. All nine layers added to `pro/DFW_DSG.aprx`.
+
+**Five service-side and geoprocessing defects found and fixed**, each recorded in config rather
+than patched around in code:
+
+1. **FEMA NFHL** rejects pages above 250 rows → `page_size: 250` plus adaptive page halving.
+2. **FWS wetlands** times out past `resultOffset` 2000 → tiled downloader (`download_rest_tiled`).
+3. **`Intersect` emits MULTIPOINT**, which a point class will not accept — surfaced only as a
+   bare `AttributeError: __len__` from deep inside `insertRow`. Explode to singlepart first.
+4. **MRLC publishes the NLCD coverage in EPSG:3857** and GeoServer cannot *write* a
+   Pseudo-Mercator GeoTIFF. Subset in 4326, demand 5070 back via `outputCrs`.
+5. **`MakeImageServerLayer` + `CopyRaster` returned a 1 × 1 slope raster.** Replaced with
+   `exportImage` at an explicit bbox and size, tiled at 1024 px (3DEP gateway-times-out at ~80s
+   on tiles well inside its own declared 8000 px cap), with a size guard that refuses to derive
+   slope from a stub. The z-factor (3.28084) matters as much: elevation is in metres, x/y in US
+   feet, and an unscaled `PERCENT_RISE` understates every slope by 3.28×.
+
+### What was decided
+
+- **D-015** — interchange proximity is straight-line at screening, radius *derived* from the
+  drive-time threshold (`15/60 × 35 ÷ 1.3 = 6.73 mi`), not typed. `DECIDED`.
+- **D-016** — sewer CCN is **not** a hard filter this run and **not** permanently demoted.
+  Every candidate carries `sewer_status = "Unknown - pending D-016 search"`; the funnel reports
+  the stage as SKIPPED. Stays `OPEN` pending the manual search.
+- **D-017** — zone rasterization cell size. `DECIDED`. See below.
+
+### The one that mattered
+
+The first screening run produced **180 candidates with 56 in `Review`**, 55 of them for
+"developed land cover: not measurable". The NLCD raster covered those parcels — sampling it at
+their centroids returned real classes. `TabulateArea` keeps only cells whose *centre* falls
+inside a zone, and at NLCD's ~83.5 ft cell the corridor-shaped parcels common among 80+ acre
+urban holdings (median effective width ~71 ft) captured none. 112 of 884 parcels were absent
+from the table rather than zero.
+
+Setting `raster_zonal.processing_cell_ft: 30` took coverage to 883/884 and 884/884, and the
+candidate list from **180 → 138**, `Review` from **56 → 1**. Forty-two of the dropped parcels
+genuinely exceed `max_developed_pct` and had been surviving on a metric that was never computed.
+
+Nothing unsafe was admitted — unmeasurable scores `Review`, never `Pass` — but the list was
+full of parcels nobody had screened, and they were indistinguishable from real candidates.
+`_warn_if_patchy()` now logs a warning when any raster metric covers under 98% of its zones.
+
+### What's next
+
+1. **STOP** — the user reviews the 138 candidates in `pro/DFW_DSG.aprx` and calibrates
+   thresholds before Part 2.
+2. Part 2: network dataset, service areas, OD cost matrix.
+3. D-016 remains open pending a sewer-CCN source; D-014 (Dallas roll join) still blocks Dallas.

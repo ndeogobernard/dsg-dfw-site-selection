@@ -692,3 +692,144 @@ at scoring time.
 county had been checked. The remaining eight counties have no located service at all, so their
 value availability is unknown, and the possibility that more of them look like Dallas than like
 Tarrant should be treated as live.
+
+---
+
+## D-015 · Interchange proximity is straight-line at the screening stage
+
+- **Date decided:** 2026-09-23 · **Status:** `DECIDED`
+- **Scope ref:** §5.1 (screening), §5.3 C04 (highway access)
+
+**Decision.** Phase A screening measures interchange access as **straight-line distance** from
+the parcel centroid to the nearest interchange, not network drive-time. True truck drive-time
+stays where the scope puts it: criterion **C04**, computed on the network dataset in Part 3.
+
+**Why.** The scope states the filter as *"truck drive-time to nearest interstate interchange
+≤ 15 min"*. Solving that properly means an OD matrix from every candidate to every interchange
+on a built network. At the screening stage there is no network yet, and building one to filter
+a county's parcels would invert the order of the work — the network exists to *score* a small
+candidate set, not to sift 758,633 parcels.
+
+A screen only has to be approximately right. It decides who gets measured properly later; C04
+then does the real measurement and can still rank a marginal parcel poorly.
+
+**How the threshold converts.** The radius is derived in `config/screening.yaml`, not typed:
+
+```
+minutes / 60 × assumed_speed_mph ÷ circuity_factor
+15 / 60 × 35 ÷ 1.3 = 6.73 miles
+```
+
+- `assumed_speed_mph: 35` — an arterial approach speed for a loaded truck, not a freeway speed.
+  The last miles to an interchange are rarely at freeway speed.
+- `circuity_factor: 1.3` — typical urban road distance ÷ straight-line distance.
+
+**The direction of the error is deliberate.** Dividing by circuity makes the radius *smaller*
+than the distance a 15-minute drive actually covers. A parcel 8 miles away in a straight line
+is almost certainly more than 15 truck-minutes from an interchange once real roads are
+followed, so admitting it would be the worse mistake. The screen errs toward excluding the
+marginal rather than admitting the unreachable.
+
+**Known consequence.** A parcel just outside 6.73 miles that happens to sit on a fast, direct
+arterial is dropped even though its true drive-time may be under 15 minutes. If the candidate
+pool comes out thin, this radius is the first thing to relax — and it can be relaxed in config
+without touching code.
+
+**Alternatives considered.** Build the network first and screen on real drive-time — correct but
+inverts the pipeline and costs far more than the screen is worth. Use a fixed radius typed
+straight into config — hides the assumption instead of stating it; the derivation makes the
+speed and circuity arguable, which is the point.
+
+---
+
+## D-016 · Sewer CCN — not applied as a hard filter while no source exists
+
+- **Date raised:** 2026-09-23 · **Status:** `OPEN` — the user is searching manually
+- **Scope ref:** §3 S19, §5.1 (`require_sewer_ccn_or_within_miles`)
+
+**Question.** Scope §5.1 makes sewer CCN service a hard filter. No statewide sewer-CCN source
+could be located. What should screening do in the meantime?
+
+**What was searched, 2026-09-23.** TCEQ's ArcGIS server publishes no CCN service (its folders
+are drinking water, groundwater, water districts, water rights, watersheds). ArcGIS Hub and
+ArcGIS Online return only **individual cities** republishing their own extracts — Celina, Anna,
+Converse, Guadalupe, Leander, Waxahachie, Bryan — none statewide and none covering Tarrant. The
+Tarrant County layer that looked promising, `WaterUtilityProvider2025`, is **water only**:
+probed across all 127 features, `TYPE` is uniformly `1` and `CCN_TYPE` uniformly
+`"Bounded Service Area"`, with no sewer attribute.
+
+The authoritative source is the **PUC of Texas** GIS download, which is a hand-fetched
+shapefile rather than a service.
+
+**Decision for this run — sewer is NOT a hard filter, and is NOT permanently demoted.**
+
+`config/screening.yaml → sewer.apply_as_hard_filter: false`. Every candidate carries
+`sewer_status = "Unknown - pending D-016 search"`, and the funnel reports the sewer stage as
+**SKIPPED** rather than omitting it.
+
+**Why not just drop the parcels.** Applying a filter whose data does not exist would remove
+candidates for a reason that has nothing to do with the land. The result would look like a
+screening outcome while actually being an artefact of a missing download — the worst kind of
+error, because it is invisible in the output.
+
+**Why not silently demote it.** Sewer service is a real constraint on an 800,000 SF facility.
+Recording `Unknown` on every candidate keeps the question attached to each one, so it cannot be
+forgotten when the shortlist is reviewed.
+
+**What closes this.** A sewer-CCN dataset covering Tarrant — the user is searching TCEQ, TWDB,
+NCTCOG and the PUC download. When one lands: add it to `physical_layers`, flip
+`apply_as_hard_filter` to `true`, and re-run screening. The funnel will then show the sewer
+stage with a real removal count, and the candidate set will shrink accordingly.
+
+**Related.** This is the same failure mode as D-014 (Dallas has no land value in its parcel
+layer) — a scope rule that assumes data which turns out not to be obtainable. Both are recorded
+rather than worked around.
+
+---
+
+## D-017 · Zone rasterization cell size for the raster-based screening metrics
+
+- **Date raised:** 2026-09-24 · **Status:** `DECIDED`
+- **Scope ref:** §5.1 (`max_mean_slope_pct`, `max_developed_pct`)
+
+**What happened.** The first Tarrant screening run produced 180 candidates, of which **56 were
+`Review` and 55 of those for the same reason — "developed land cover: not measurable"**. The
+NLCD raster covered every one of them: sampling the raster directly at those parcels' centroids
+returned real class values (23, 31, 22). The data was there and the metric still came back empty.
+
+**Cause.** `TabulateArea` and `ZonalStatisticsAsTable` both convert the zone features to a
+raster first, and a zone keeps only the cells whose **centre** falls inside it. At NLCD's native
+cell of ~83.5 ft in the analysis CRS, parcels narrower than that capture no centre at all and
+are omitted from the output table entirely — not zero, absent. 112 of the 884 acreage survivors
+were dropped this way. Slope, computed on a 32.8 ft cell, lost only one parcel: same mechanism,
+finer cell, smaller loss. That difference is what identified the cause.
+
+This is the common case here, not an edge case. Many 80+ acre parcels in an urban county are
+corridor-shaped — floodplain, highway and rail ROW, pipeline easements — and measure a median
+effective width (`4·area / perimeter`) of about 71 ft.
+
+**Decision.** Both raster metrics run at a configured processing cell,
+`screening.yaml → raster_zonal.processing_cell_ft: 30`, set on `arcpy.env.cellSize` and passed
+explicitly to `TabulateArea`. Coverage went from 772/884 to 883/884 for land cover and 883/884
+to 884/884 for slope.
+
+**Why this is not manufacturing precision.** A finer processing cell changes only how well the
+*zone boundary* is described. The class values still come from the 30 m NLCD product, resampled
+nearest, so the source resolution remains the real limit on how precisely a narrow parcel's land
+cover is known. What changes is that the parcel gets an approximate answer instead of no answer.
+
+**Why it mattered.** An unmeasurable metric scores `Review`, never `Pass`, so this never admitted
+a parcel that should have failed — the screen was conservative in the safe direction. But it
+inflated the candidate list with parcels nobody had actually screened: **the corrected run drops
+from 180 to 138, and `Review` from 56 to 1**. Forty-two of those parcels genuinely exceed
+`max_developed_pct`; they had been surviving on an unmeasured metric. Carried into Part 2 they
+would have consumed network solves and reached scoring on a criterion that was never computed.
+
+**Guard added.** `_warn_if_patchy()` logs a warning whenever a raster metric measures less than
+98% of the parcels it was given, naming the metric and the shortfall. The failure mode here was
+not that the number was wrong but that its absence looked like a result; the warning makes the
+absence loud.
+
+**Related.** Same family as the `Slope_pct` 1 x 1 raster caught earlier the same session, and as
+D-016: in all three the analysis would have completed and reported a plausible number. See also
+`docs/tutorial/06-screening-candidate-sites.md`, "How it can go wrong quietly".
