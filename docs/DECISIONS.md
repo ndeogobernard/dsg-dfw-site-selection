@@ -1094,3 +1094,48 @@ for the same segment.
 **Scope amendment.** §4.6's Truck mode line should read "impedance `TruckMinutes`". Recorded here
 rather than edited into the scope, per the project's convention that `docs/DECISIONS.md` carries
 amendments.
+
+---
+
+## D-020 · Freight-reach service areas are centred on the MSA centroid, not on 138 candidates
+
+- **Date raised:** 2026-09-24 · **Status:** `DECIDED`
+- **Scope ref:** §5.2 (`ServiceAreas_Truck`, breaks 60/120/240), §2.2 (served set)
+
+**What scope §5.2 asks for.** A `ServiceAreas_Truck` layer built from *candidate centroids* at
+60, 120 and 240 minutes — 138 facilities × 3 breaks.
+
+**What that costs, measured.** The Driving equivalent (15/30/45 min, detailed polygons) took
+**31 minutes for a batch of 50 facilities** on the 1,399,985-edge network. The Truck bands are
+four to five times the time radius, so each isochrone covers roughly an order of magnitude more
+area and traverses into neighbouring states. A full run is hours, not minutes.
+
+**What consumes it: nothing.** `config/criteria.yaml` was checked directly. C01 and C02 depend on
+`ServiceAreas_Driving`; the store-accessibility criterion depends on `OD_Cand_to_Stores` and
+`StoreServiceSet`. **No criterion references `ServiceAreas_Truck`.** It is a cartographic
+product, not a scoring input.
+
+**The question the served set actually poses is centred elsewhere.** Scope §2.2 defines the
+served set by truck time from the **MSA centroid**, not from each candidate. So the isochrone
+that explains and illustrates the served set is the one drawn from that centroid — and it is a
+single facility, solvable in one pass.
+
+**Decision.** `ServiceAreas_Truck` is populated with the truck-time reach **from the MSA
+centroid**, at bands 60 / 120 / 240 / 600 minutes, with `cand_id = "MSA_CENTROID"`. Each band
+reports how many stores fall inside it. The 138-candidate version is **not built in Part 2**.
+
+**Why this is the better layer, not merely the cheaper one.** A reader asking "how far can this
+DC reach in a day?" is asking about the market position of the DFW MSA, which is what the
+600-minute band answers. 138 overlapping four-hour isochrones drawn from parcels a few miles
+apart would be visually indistinguishable from one another and from the centroid version — the
+candidates span roughly 30 miles, which is under 10% of a four-hour truck radius.
+
+**What this does not cover, stated plainly.** If a later criterion is added that genuinely
+discriminates between candidates on freight reach, this decision has to be revisited and the
+per-candidate solve paid for. Nothing currently does, and the OD matrix already measures
+candidate-to-store truck time directly and per candidate — which is the sharper measurement for
+that question anyway, since it gives a number per store rather than a polygon.
+
+**Scope amendment.** §5.2's `ServiceAreas_Truck` row should read "Facilities: MSA centroid" with
+a note that per-candidate freight isochrones are available on request. Recorded here rather than
+edited into the scope, per convention.

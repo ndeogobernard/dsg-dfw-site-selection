@@ -11,6 +11,7 @@ to reach spans sixteen states.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -701,42 +702,40 @@ def build_network(gdb=None, run_id="", net=None, keep_xml=True):
             "template": str(xml_path)}
 
 
-def travel_mode(name, net=None):
-    """Build an arcpy.nax TravelMode from network.yaml.
+def na_params(name, net=None):
+    """Solver parameters for one travel mode, for the classic `arcpy.na` API.
 
-    The ND itself carries no named travel modes. Constructing them here keeps
-    the impedance, the restrictions and the U-turn policy in config where the
-    rest of the project's parameters live, rather than baked into a binary
-    geodatabase where a reader cannot see them.
+    Named travel modes are NOT used. `arcpy.nax` refuses to open a network that
+    has none, and a network dataset built from a patched template has none: the
+    `TravelModes` property key that looked like the place to put them is
+    ignored by `CreateNetworkDatasetFromTemplate`, and arcpy exposes no tool to
+    add a travel mode to an existing network. The classic `arcpy.na.Make*Layer`
+    tools take impedance, restrictions and U-turn policy as explicit arguments,
+    so the modelling stays in `network.yaml` and stays visible - arguably more
+    legible than a mode name that hides all three.
+
+    The consequence to know about: opening the .aprx and starting a Network
+    Analyst layer by hand will offer no named mode, so the settings below have
+    to be chosen in the dialog. The toolbox does it from config.
     """
-    _require_arcpy()
-    import arcpy
-    import json
-
     net = net or config.network()
     m = net["travel_modes"][name]
-    spec = {
-        "name": name,
-        "type": "AUTOMOBILE" if name == "Driving" else "TRUCK",
-        "impedanceAttributeName": m["impedance"],
-        "timeAttributeName": m["time_attribute"],
-        "distanceAttributeName": m["distance_attribute"],
-        "restrictionAttributeNames": list(m.get("restrictions", [])),
-        "attributeParameterValues": [],
-        "uTurnAtJunctions": ("esriNFSBAllowBacktrack"
-                             if m.get("uturn_policy") == "ALLOW_UTURNS"
-                             else "esriNFSBNoBacktrack"),
-        "useHierarchy": False,
-        "simplificationTolerance": 0,
-        "simplificationToleranceUnits": "esriUnknownUnits",
-        "outputGeometryPrecision": 0,
-        "outputGeometryPrecisionUnits": "esriUnknownUnits",
-        "timeAttributeUnits": "esriNAUMinutes",
-        "distanceAttributeUnits": "esriNAUMiles",
-        "description": "",
-        "id": name,
+    impedance = m["impedance"]
+    accumulate = [a for a in (m["time_attribute"], m["distance_attribute"])
+                  if a != impedance]
+    return {
+        "impedance": impedance,
+        "restrictions": list(m.get("restrictions", [])),
+        "uturn": m.get("uturn_policy", "ALLOW_UTURNS"),
+        "accumulate": accumulate,
+        "time_attribute": m["time_attribute"],
+        "distance_attribute": m["distance_attribute"],
     }
-    return arcpy.nax.TravelMode(json.dumps(spec))
+
+
+def total_field(attribute):
+    """Classic NA names its accumulated output columns `Total_<attribute>`."""
+    return "Total_%s" % attribute
 
 
 # ---------------------------------------------------------------------------
@@ -746,13 +745,13 @@ def travel_mode(name, net=None):
 def validate_routes(gdb=None, net=None, mode="Driving"):
     """Solve known city-pair routes and compare against reference figures.
 
-    This is a smoke test for the network, not an accuracy certification. It is
-    looking for the failures that are otherwise invisible:
+    A smoke test for the network, not an accuracy certification. It looks for
+    the failures that are otherwise invisible:
 
-      * a network that does not connect at all - the solve fails outright;
+      * a network that does not connect - the solve fails outright;
       * one-way logic inverted, or speeds in the wrong units - times come out
         wildly wrong rather than slightly wrong;
-      * a missing state - the out-of-state routes cannot be reached, while the
+      * a missing state - the out-of-state routes cannot be reached while the
         in-state ones still look perfect.
 
     Four of the seven references cross a state line for that last reason.
@@ -765,59 +764,78 @@ def validate_routes(gdb=None, net=None, mode="Driving"):
     nd = gdb + "\\" + net["build"]["dataset"] + "\\" + net["build"]["nd_name"]
     spec = net["validation_routes"]
     tol = float(spec["tolerance_pct"])
-    target_crs = int(config.schema()["meta"]["crs"])
+    p = na_params(mode, net)
     sr_in = arcpy.SpatialReference(4326)
-    sr_out = arcpy.SpatialReference(target_crs)
+    sr_out = arcpy.SpatialReference(int(config.schema()["meta"]["crs"]))
 
-    tm = travel_mode(mode, net)
+    arcpy.env.overwriteOutput = True
+    arcpy.CheckOutExtension("Network")
+    lyr_name = "val_%s" % mode
+    # Keyword arguments throughout. These tools have ten-plus optional
+    # positional parameters and `hierarchy_settings` sits between `hierarchy`
+    # and `output_path_shape`, so a positional call silently shifts the output
+    # shape into the hierarchy slot and fails with an error that names neither.
+    nalyr = arcpy.na.MakeRouteLayer(
+        in_network_dataset=nd,
+        out_network_analysis_layer=lyr_name,
+        impedance_attribute=p["impedance"],
+        find_best_order="USE_INPUT_ORDER",
+        accumulate_attribute_name=p["accumulate"],
+        UTurn_policy=p["uturn"],
+        restriction_attribute_name=p["restrictions"],
+        output_path_shape="NO_LINES").getOutput(0)
+    sub = arcpy.na.GetNAClassNames(nalyr)
+
     results = []
     log.info("=" * 68)
-    log.info("route validation - %s mode, tolerance +/-%.0f%%", mode, tol)
-    log.info("  %-26s %9s %9s %9s %9s  %s",
-             "route", "miles", "ref", "minutes", "ref", "verdict")
+    log.info("route validation - %s mode, impedance %s, restrictions %s, "
+             "tolerance +/-%.0f%%", mode, p["impedance"],
+             ",".join(p["restrictions"]) or "none", tol)
 
-    for spec_route in spec["routes"]:
-        rt = arcpy.nax.Route(nd)
-        rt.travelMode = tm
-        rt.timeUnits = arcpy.nax.TimeUnits.Minutes
-        rt.distanceUnits = arcpy.nax.DistanceUnits.Miles
-        rt.routeShapeType = arcpy.nax.RouteShapeType.NoGeometry
+    for r in spec["routes"]:
+        stops = arcpy.management.CreateFeatureclass(
+            "in_memory", "stops_%d" % len(results), "POINT",
+            spatial_reference=sr_out)[0]
+        arcpy.management.AddField(stops, "Name", "TEXT", field_length=40)
+        with arcpy.da.InsertCursor(stops, ["SHAPE@", "Name"]) as cur:
+            for label, lonlat in (("from", r["from"]), ("to", r["to"])):
+                cur.insertRow([arcpy.PointGeometry(arcpy.Point(*lonlat),
+                                                   sr_in).projectAs(sr_out), label])
+        arcpy.na.AddLocations(nalyr, sub["Stops"], stops,
+                              "Name Name #", "5000 Meters", append="CLEAR")
+        arcpy.management.Delete(stops)
 
-        with rt.insertCursor(arcpy.nax.RouteInputDataType.Stops,
-                             ["SHAPE@", "Name"]) as cur:
-            for label, lonlat in (("from", spec_route["from"]),
-                                  ("to", spec_route["to"])):
-                pt = arcpy.PointGeometry(arcpy.Point(*lonlat), sr_in).projectAs(sr_out)
-                cur.insertRow([pt, label])
-
-        solved = rt.solve()
-        if not solved.solveSucceeded:
-            msg = "; ".join(str(m) for m in solved.solverMessages(
-                arcpy.nax.MessageSeverity.All))[:160]
-            log.warning("  %-26s %9s %9s %9s %9s  FAIL  %s",
-                        spec_route["name"], "-", spec_route["ref_miles"],
-                        "-", spec_route["ref_minutes"], msg)
-            results.append({"name": spec_route["name"], "solved": False,
-                            "miles": None, "minutes": None, "message": msg})
-            continue
+        try:
+            arcpy.na.Solve(nalyr, "SKIP")
+            ok_solve = True
+        except Exception as exc:
+            ok_solve = False
+            msg = str(exc)[:160]
 
         miles = minutes = None
-        with solved.searchCursor(arcpy.nax.RouteOutputDataType.Routes,
-                                 ["Total_Miles", "Total_Minutes"]) as c:
-            for row in c:
-                miles, minutes = float(row[0]), float(row[1])
+        if ok_solve:
+            route_sub = nalyr.listLayers(sub["Routes"])[0]
+            f_time = total_field(p["time_attribute"])
+            f_dist = total_field(p["distance_attribute"])
+            with arcpy.da.SearchCursor(route_sub, [f_dist, f_time]) as c:
+                for row in c:
+                    miles, minutes = float(row[0]), float(row[1])
 
-        dm = 100.0 * (miles - spec_route["ref_miles"]) / spec_route["ref_miles"]
-        dt = 100.0 * (minutes - spec_route["ref_minutes"]) / spec_route["ref_minutes"]
+        if miles is None:
+            log.warning("  %-26s DID NOT SOLVE", r["name"])
+            results.append({"name": r["name"], "solved": False,
+                            "miles": None, "minutes": None})
+            continue
+
+        dm = 100.0 * (miles - r["ref_miles"]) / r["ref_miles"]
+        dt = 100.0 * (minutes - r["ref_minutes"]) / r["ref_minutes"]
         ok = abs(dm) <= tol and abs(dt) <= tol
-        log.info("  %-26s %9.1f %9s %9.1f %9s  %s (%+.0f%% mi, %+.0f%% min)",
-                 spec_route["name"], miles, spec_route["ref_miles"],
-                 minutes, spec_route["ref_minutes"],
-                 "ok  " if ok else "OFF ", dm, dt)
-        results.append({"name": spec_route["name"], "solved": True,
+        log.info("  %-26s %7.1f mi (ref %4s) %7.1f min (ref %4s)  %s "
+                 "(%+.0f%% mi, %+.0f%% min)", r["name"], miles, r["ref_miles"],
+                 minutes, r["ref_minutes"], "ok " if ok else "OFF", dm, dt)
+        results.append({"name": r["name"], "solved": True,
                         "miles": round(miles, 1), "minutes": round(minutes, 1),
-                        "ref_miles": spec_route["ref_miles"],
-                        "ref_minutes": spec_route["ref_minutes"],
+                        "ref_miles": r["ref_miles"], "ref_minutes": r["ref_minutes"],
                         "pct_miles": round(dm, 1), "pct_minutes": round(dt, 1),
                         "within_tolerance": ok})
 

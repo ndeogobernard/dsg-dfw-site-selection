@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from . import config
-from .roads import travel_mode
+from .roads import na_params, total_field
 
 log = logging.getLogger(__name__)
 
@@ -91,37 +91,46 @@ def compute_served_set(gdb=None, run_id="", net=None):
     log.info("served set: %s within %.0f min (%s) of the MSA centroid",
              format(len(stores), ","), cutoff, mode)
 
-    od = arcpy.nax.OriginDestinationCostMatrix(_nd(gdb, net))
-    od.travelMode = travel_mode(mode, net)
-    od.timeUnits = arcpy.nax.TimeUnits.Minutes
-    od.distanceUnits = arcpy.nax.DistanceUnits.Miles
-    od.defaultImpedanceCutoff = cutoff
-    od.lineShapeType = arcpy.nax.LineShapeType.NoLines
+    p = na_params(mode, net)
+    arcpy.env.overwriteOutput = True
+    arcpy.CheckOutExtension("Network")
+    lyr = arcpy.na.MakeODCostMatrixLayer(
+        in_network_dataset=_nd(gdb, net),
+        out_network_analysis_layer="served_od",
+        impedance_attribute=p["impedance"],
+        default_cutoff=cutoff,
+        accumulate_attribute_name=p["accumulate"],
+        UTurn_policy=p["uturn"],
+        restriction_attribute_name=p["restrictions"],
+        output_path_shape="NO_LINES").getOutput(0)
+    sub = arcpy.na.GetNAClassNames(lyr)
 
+    pt_fc = arcpy.management.CreateFeatureclass(
+        "in_memory", "msa_centroid", "POINT",
+        spatial_reference=arcpy.SpatialReference(target_crs))[0]
+    arcpy.management.AddField(pt_fc, "Name", "TEXT", field_length=40)
     pt = arcpy.PointGeometry(arcpy.Point(*centre),
                              arcpy.SpatialReference(4326)).projectAs(
                                  arcpy.SpatialReference(target_crs))
-    with od.insertCursor(arcpy.nax.OriginDestinationCostMatrixInputDataType.Origins,
-                         ["SHAPE@", "Name"]) as cur:
+    with arcpy.da.InsertCursor(pt_fc, ["SHAPE@", "Name"]) as cur:
         cur.insertRow([pt, "MSA_CENTROID"])
-    with od.insertCursor(
-            arcpy.nax.OriginDestinationCostMatrixInputDataType.Destinations,
-            ["SHAPE@", "Name"]) as cur:
-        for sid, shp in stores:
-            cur.insertRow([shp, sid])
 
-    res = od.solve()
-    if not res.solveSucceeded:
-        raise RuntimeError("served-set solve failed: %s" % "; ".join(
-            str(m) for m in res.solverMessages(arcpy.nax.MessageSeverity.All))[:300])
+    arcpy.na.AddLocations(lyr, sub["Origins"], pt_fc, "Name Name #",
+                          "5000 Meters", append="CLEAR")
+    arcpy.na.AddLocations(lyr, sub["Destinations"],
+                          gdb + "\\Market\\Stores_DSG", "Name store_id #",
+                          "5000 Meters", append="CLEAR")
+    arcpy.management.Delete(pt_fc)
+    arcpy.na.Solve(lyr, "SKIP")
 
-    order = [sid for sid, _ in stores]
+    f_time = total_field(p["time_attribute"])
+    f_dist = total_field(p["distance_attribute"])
     reached = {}
-    with res.searchCursor(
-            arcpy.nax.OriginDestinationCostMatrixOutputDataType.Lines,
-            ["DestinationOID", "Total_Minutes", "Total_Miles"]) as c:
-        for doid, minutes, miles in c:
-            sid = order[int(doid) - 1]
+    lines = lyr.listLayers(sub["ODLines"])[0]
+    with arcpy.da.SearchCursor(lines, ["Name", f_time, f_dist]) as c:
+        for nm, minutes, miles in c:
+            # classic OD names each line "<origin> - <destination>"
+            sid = str(nm).split(" - ", 1)[-1]
             if minutes is not None:
                 reached[sid] = (float(minutes), float(miles))
 
@@ -205,48 +214,64 @@ def build_service_areas(gdb=None, run_id="", mode="Driving", net=None):
         editor.stopOperation()
         editor.stopEditing(True)
 
-    tm = travel_mode(mode, net)
+    p = na_params(mode, net)
+    sa_cfg = net["service_areas"]
+    poly_type = {"STANDARD": "DETAILED_POLYS",
+                 "GENERALIZED": "SIMPLE_POLYS"}[spec["polygon_detail"]]
+    trim = str(spec["polygon_trim_distance"])
+    arcpy.CheckOutExtension("Network")
+
+    lyr = arcpy.na.MakeServiceAreaLayer(
+        in_network_dataset=_nd(gdb, net),
+        out_network_analysis_layer="sa_%s" % mode,
+        impedance_attribute=p["impedance"],
+        travel_from_to="TRAVEL_FROM",
+        default_break_values=" ".join(str(int(b)) for b in breaks),
+        polygon_type=poly_type,
+        merge=sa_cfg["merge"],
+        nesting_type=sa_cfg["nesting"],
+        line_type="NO_LINES",
+        accumulate_attribute_name=p["accumulate"],
+        UTurn_policy=p["uturn"],
+        restriction_attribute_name=p["restrictions"],
+        polygon_trim="TRIM_POLYS",
+        poly_trim_value=trim).getOutput(0)
+    sub = arcpy.na.GetNAClassNames(lyr)
     written, failed, t0 = 0, [], time.time()
 
     for bi, group in enumerate(_chunks(cands, batch), 1):
-        sa = arcpy.nax.ServiceArea(_nd(gdb, net))
-        sa.travelMode = tm
-        sa.timeUnits = arcpy.nax.TimeUnits.Minutes
-        sa.distanceUnits = arcpy.nax.DistanceUnits.Miles
-        sa.defaultImpedanceCutoffs = breaks
-        sa.outputType = arcpy.nax.ServiceAreaOutputType.Polygons
-        sa.geometryAtOverlap = getattr(
-            arcpy.nax.ServiceAreaOverlapGeometry, spec["geometry_at_overlaps"].title())
-        sa.polygonDetail = getattr(
-            arcpy.nax.ServiceAreaPolygonDetail, spec["polygon_detail"].title())
-        sa.polygonBufferDistance = float(
-            str(spec["polygon_trim_distance"]).split()[0])
-
-        with sa.insertCursor(arcpy.nax.ServiceAreaInputDataType.Facilities,
-                             ["SHAPE@", "Name"]) as cur:
+        fac = arcpy.management.CreateFeatureclass(
+            "in_memory", "fac_%d" % bi, "POINT",
+            spatial_reference=arcpy.SpatialReference(
+                int(config.schema()["meta"]["crs"])))[0]
+        arcpy.management.AddField(fac, "Name", "TEXT", field_length=64)
+        with arcpy.da.InsertCursor(fac, ["SHAPE@", "Name"]) as cur:
             for cid, pt in group:
                 cur.insertRow([pt, cid])
+        arcpy.na.AddLocations(lyr, sub["Facilities"], fac, "Name Name #",
+                              "5000 Meters", append="CLEAR")
+        arcpy.management.Delete(fac)
 
-        res = sa.solve()
-        if not res.solveSucceeded:
+        try:
+            arcpy.na.Solve(lyr, "SKIP")
+        except Exception as exc:
             failed.extend(cid for cid, _ in group)
-            log.warning("  batch %d failed: %s", bi, "; ".join(
-                str(m) for m in res.solverMessages(
-                    arcpy.nax.MessageSeverity.Error))[:200])
+            log.warning("  batch %d failed: %s", bi, str(exc)[:200])
             continue
 
+        polys = lyr.listLayers(sub["SAPolygons"])[0]
         editor = arcpy.da.Editor(gdb)
         editor.startEditing(False, False)
         editor.startOperation()
         try:
             with arcpy.da.InsertCursor(
-                    dest, ["SHAPE@", "cand_id", "break_min", "run_id"]) as ic, \
-                 res.searchCursor(arcpy.nax.ServiceAreaOutputDataType.Polygons,
-                                  ["SHAPE@", "FacilityName", "ToBreak"]) as sc:
-                for shp, fname, to_break in sc:
+                    dest, ["SHAPE@", "cand_id", "break_min", "run_id"]) as ic,                  arcpy.da.SearchCursor(polys, ["SHAPE@", "Name", "ToBreak"]) as sc:
+                for shp, nm, to_break in sc:
                     if shp is None:
                         continue
-                    ic.insertRow([shp, fname, float(to_break), run_id])
+                    # classic SA names each polygon "<facility> : 0 - 30"
+                    cid = str(nm).split(" : ", 1)[0]
+                    ic.insertRow([shp, cid, float(to_break), run_id])
                     written += 1
             editor.stopOperation()
             editor.stopEditing(True)
@@ -302,56 +327,61 @@ def build_od_stores(gdb=None, run_id="", net=None):
         editor.stopOperation()
         editor.stopEditing(True)
 
-    tm = travel_mode(spec["mode"], net)
-    store_order = [sid for sid, _ in stores]
+    p = na_params(spec["mode"], net)
+    arcpy.CheckOutExtension("Network")
     written, t0 = 0, time.time()
     reached_per_cand: dict[str, int] = {}
 
-    for bi, group in enumerate(_chunks(cands, batch), 1):
-        od = arcpy.nax.OriginDestinationCostMatrix(_nd(gdb, net))
-        od.travelMode = tm
-        od.timeUnits = arcpy.nax.TimeUnits.Minutes
-        od.distanceUnits = arcpy.nax.DistanceUnits.Miles
-        od.lineShapeType = arcpy.nax.LineShapeType.NoLines
-        if spec.get("cutoff_min"):
-            od.defaultImpedanceCutoff = float(spec["cutoff_min"])
+    lyr = arcpy.na.MakeODCostMatrixLayer(
+        in_network_dataset=_nd(gdb, net),
+        out_network_analysis_layer="od_stores",
+        impedance_attribute=p["impedance"],
+        default_cutoff=float(spec["cutoff_min"]) if spec.get("cutoff_min") else None,
+        accumulate_attribute_name=p["accumulate"],
+        UTurn_policy=p["uturn"],
+        restriction_attribute_name=p["restrictions"],
+        output_path_shape="NO_LINES").getOutput(0)
+    sub = arcpy.na.GetNAClassNames(lyr)
+    f_time = total_field(p["time_attribute"])
+    f_dist = total_field(p["distance_attribute"])
 
-        with od.insertCursor(
-                arcpy.nax.OriginDestinationCostMatrixInputDataType.Origins,
-                ["SHAPE@", "Name"]) as cur:
+    # Destinations are the same for every batch, so they are loaded once.
+    arcpy.na.AddLocations(lyr, sub["Destinations"],
+                          gdb + "\\Market\\Stores_DSG", "Name store_id #",
+                          "5000 Meters", append="CLEAR")
+
+    for bi, group in enumerate(_chunks(cands, batch), 1):
+        orig = arcpy.management.CreateFeatureclass(
+            "in_memory", "orig_%d" % bi, "POINT",
+            spatial_reference=arcpy.SpatialReference(
+                int(config.schema()["meta"]["crs"])))[0]
+        arcpy.management.AddField(orig, "Name", "TEXT", field_length=64)
+        with arcpy.da.InsertCursor(orig, ["SHAPE@", "Name"]) as cur:
             for cid, pt in group:
                 cur.insertRow([pt, cid])
-        with od.insertCursor(
-                arcpy.nax.OriginDestinationCostMatrixInputDataType.Destinations,
-                ["SHAPE@", "Name"]) as cur:
-            for sid, shp in stores:
-                cur.insertRow([shp, sid])
+        arcpy.na.AddLocations(lyr, sub["Origins"], orig, "Name Name #",
+                              "5000 Meters", append="CLEAR")
+        arcpy.management.Delete(orig)
 
-        res = od.solve()
-        if not res.solveSucceeded:
-            log.warning("  batch %d failed: %s", bi, "; ".join(
-                str(m) for m in res.solverMessages(
-                    arcpy.nax.MessageSeverity.Error))[:200])
+        try:
+            arcpy.na.Solve(lyr, "SKIP")
+        except Exception as exc:
+            log.warning("  batch %d failed: %s", bi, str(exc)[:200])
             continue
 
-        cand_order = [cid for cid, _ in group]
+        lines = lyr.listLayers(sub["ODLines"])[0]
         editor = arcpy.da.Editor(gdb)
         editor.startEditing(False, False)
         editor.startOperation()
         try:
             with arcpy.da.InsertCursor(
                     dest, ["cand_id", "store_id", "truck_minutes",
-                           "truck_miles", "run_id"]) as ic, \
-                 res.searchCursor(
-                     arcpy.nax.OriginDestinationCostMatrixOutputDataType.Lines,
-                     ["OriginOID", "DestinationOID",
-                      "Total_Minutes", "Total_Miles"]) as sc:
-                for ooid, doid, minutes, miles in sc:
+                           "truck_miles", "run_id"]) as ic,                  arcpy.da.SearchCursor(lines, ["Name", f_time, f_dist]) as sc:
+                for nm, minutes, miles in sc:
                     if minutes is None:
                         continue
-                    cid = cand_order[int(ooid) - 1]
-                    ic.insertRow([cid, store_order[int(doid) - 1],
-                                  float(minutes), float(miles), run_id])
+                    cid, sid = str(nm).split(" - ", 1)
+                    ic.insertRow([cid, sid, float(minutes), float(miles), run_id])
                     reached_per_cand[cid] = reached_per_cand.get(cid, 0) + 1
                     written += 1
             editor.stopOperation()
@@ -372,3 +402,120 @@ def build_od_stores(gdb=None, run_id="", net=None):
     return {"target": "OD_Cand_to_Stores", "pairs": written,
             "candidates": len(cands), "served_stores": len(stores),
             "reached_per_cand": reached_per_cand, "unreachable": missing}
+
+
+def build_served_reach(gdb=None, run_id="", net=None, bands=None):
+    """Truck-time reach from the MSA centroid, and the stores inside each band.
+
+    This is the geometry behind the served-set rule in scope 2.2: the served
+    set is defined by truck time from the MSA CENTROID, so the isochrone that
+    explains it is centred there too.
+
+    It is deliberately NOT the 138-candidate `ServiceAreas_Truck` of scope 5.2.
+    Those are a cartographic product - no criterion in `criteria.yaml` depends
+    on them, C01/C02 use the Driving areas and the store criterion uses the OD
+    table - and at 60/120/240 minutes over a sixteen-state network they cost
+    hours. One facility answers the question the served set actually poses.
+    """
+    import arcpy
+
+    net = net or config.network()
+    gdb = gdb or config.paths()["gdb"]
+    src = config.sources()
+    spec = net["service_areas"]["Truck"]
+    bands = [float(b) for b in (bands or list(spec["breaks_min"]) +
+                                [net["od_matrices"]["stores"]["cutoff_min"]])]
+    centre = src["study_area"]["msa_centroid_wgs84"]
+    target_crs = int(config.schema()["meta"]["crs"])
+    dest = gdb + "\\Analysis\\ServiceAreas_Truck"
+    p = na_params("Truck", net)
+
+    log.info("=" * 68)
+    log.info("served reach: Truck bands %s min from the MSA centroid", bands)
+
+    arcpy.env.overwriteOutput = True
+    arcpy.CheckOutExtension("Network")
+    if int(arcpy.management.GetCount(dest)[0]):
+        editor = arcpy.da.Editor(gdb)
+        editor.startEditing(False, False)
+        editor.startOperation()
+        arcpy.management.DeleteRows(dest)
+        editor.stopOperation()
+        editor.stopEditing(True)
+
+    lyr = arcpy.na.MakeServiceAreaLayer(
+        in_network_dataset=_nd(gdb, net),
+        out_network_analysis_layer="sa_reach",
+        impedance_attribute=p["impedance"],
+        travel_from_to="TRAVEL_FROM",
+        default_break_values=" ".join(str(int(b)) for b in bands),
+        polygon_type="SIMPLE_POLYS",
+        merge="NO_MERGE",
+        nesting_type=net["service_areas"]["nesting"],
+        line_type="NO_LINES",
+        UTurn_policy=p["uturn"],
+        restriction_attribute_name=p["restrictions"],
+        polygon_trim="TRIM_POLYS",
+        poly_trim_value=str(spec["polygon_trim_distance"])).getOutput(0)
+    sub = arcpy.na.GetNAClassNames(lyr)
+
+    fac = arcpy.management.CreateFeatureclass(
+        "in_memory", "reach_fac", "POINT",
+        spatial_reference=arcpy.SpatialReference(target_crs))[0]
+    arcpy.management.AddField(fac, "Name", "TEXT", field_length=64)
+    pt = arcpy.PointGeometry(arcpy.Point(*centre),
+                             arcpy.SpatialReference(4326)).projectAs(
+                                 arcpy.SpatialReference(target_crs))
+    with arcpy.da.InsertCursor(fac, ["SHAPE@", "Name"]) as cur:
+        cur.insertRow([pt, "MSA_CENTROID"])
+    arcpy.na.AddLocations(lyr, sub["Facilities"], fac, "Name Name #",
+                          "5000 Meters", append="CLEAR")
+    arcpy.management.Delete(fac)
+
+    t0 = time.time()
+    arcpy.na.Solve(lyr, "SKIP")
+    polys = lyr.listLayers(sub["SAPolygons"])[0]
+
+    written = 0
+    editor = arcpy.da.Editor(gdb)
+    editor.startEditing(False, False)
+    editor.startOperation()
+    try:
+        with arcpy.da.InsertCursor(
+                dest, ["SHAPE@", "cand_id", "break_min", "run_id"]) as ic, \
+             arcpy.da.SearchCursor(polys, ["SHAPE@", "Name", "ToBreak"]) as sc:
+            for shp, nm, to_break in sc:
+                if shp is None:
+                    continue
+                ic.insertRow([shp, "MSA_CENTROID", float(to_break), run_id])
+                written += 1
+        editor.stopOperation()
+        editor.stopEditing(True)
+    except Exception:
+        editor.abortOperation()
+        editor.stopEditing(False)
+        raise
+
+    # Which stores land in which band, from the OD times already computed.
+    per_band = {b: 0 for b in bands}
+    beyond = 0
+    with arcpy.da.SearchCursor(gdb + "\\StoreServiceSet",
+                               ["truck_minutes", "run_id"],
+                               "run_id = '%s'" % run_id) as c:
+        for minutes, _ in c:
+            if minutes is None:
+                beyond += 1
+                continue
+            for b in bands:
+                if minutes <= b:
+                    per_band[b] += 1
+                    break
+            else:
+                beyond += 1
+
+    log.info("  %d reach polygons in %.0fs", written, time.time() - t0)
+    for b in bands:
+        log.info("    <= %4.0f min   %3d stores", b, per_band[b])
+    log.info("    beyond       %3d stores", beyond)
+    return {"target": "ServiceAreas_Truck", "polygons": written,
+            "bands": bands, "stores_per_band": per_band, "beyond": beyond}

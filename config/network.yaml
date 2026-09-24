@@ -102,6 +102,16 @@ travel_modes:
 
 # --- Solver settings (scope 5.2) ---
 service_areas:
+  # `polygon_detail` maps to the classic tool's polygon_type:
+  #   STANDARD -> DETAILED_POLYS, GENERALIZED -> SIMPLE_POLYS.
+  # `merge: NO_MERGE` keeps one polygon set PER CANDIDATE - merging across
+  # facilities would produce a single blob and destroy the per-site measurement
+  # the criteria depend on.
+  # `nesting: DISKS` makes each break cumulative (0-15, 0-30, 0-45) rather than
+  # disjoint rings, because "workers within 30 minutes" means everyone inside
+  # 30, not only those between 15 and 30.
+  merge: NO_MERGE
+  nesting: DISKS
   Driving:
     breaks_min: [15, 30, 45]
     polygon_detail: STANDARD

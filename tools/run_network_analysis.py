@@ -98,17 +98,33 @@ def main() -> int:
             ss["served"] > 0, "%d served, %d beyond the cutoff"
             % (ss["served"], ss["unreached"]))
 
-        sa_results = {}
-        for mode in ("Driving", "Truck"):
-            sa = network.build_service_areas(gdb, run_id=run_id, mode=mode, net=net)
-            sa_results[mode] = sa
-            print("  ServiceAreas_%-8s %5d polygons, %3d facilities, %d failed"
-                  % (mode, sa["polygons"], sa["facilities"], len(sa["failed"])))
-            _qa(checks, "SA-%s" % mode[:3].upper(), "ServiceAreas_%s" % mode,
-                "%s service areas for every candidate" % mode,
-                not sa["failed"],
-                "%d polygons, %d candidates with none"
-                % (sa["polygons"], len(sa["failed"])))
+        # Driving only. The 138-candidate Truck isochrones of scope 5.2 feed no
+        # criterion in criteria.yaml and cost hours at 60/120/240 minutes over a
+        # sixteen-state network; the truck reach that the served set actually
+        # rests on is centred on the MSA centroid and is produced below. D-020.
+        sa = network.build_service_areas(gdb, run_id=run_id, mode="Driving", net=net)
+        print("  ServiceAreas_Driving %5d polygons, %3d facilities, %d failed"
+              % (sa["polygons"], sa["facilities"], len(sa["failed"])))
+        _qa(checks, "SA-DRI", "ServiceAreas_Driving",
+            "Driving service areas for every candidate", not sa["failed"],
+            "%d polygons, %d candidates with none"
+            % (sa["polygons"], len(sa["failed"])))
+        _qa(checks, "SA-BREAKS", "ServiceAreas_Driving",
+            "One polygon per candidate per break",
+            sa["polygons"] == sa["facilities"] * len(sa["breaks"]),
+            "%d vs %d expected"
+            % (sa["polygons"], sa["facilities"] * len(sa["breaks"])))
+
+        reach = network.build_served_reach(gdb, run_id=run_id, net=net)
+        print("  ServiceAreas_Truck   %5d reach polygons from the MSA centroid"
+              % reach["polygons"])
+        for b in reach["bands"]:
+            print("    <= %4.0f truck-min   %3d stores" % (b, reach["stores_per_band"][b]))
+        print("    beyond             %3d stores" % reach["beyond"])
+        _qa(checks, "SA-REACH", "ServiceAreas_Truck",
+            "Truck reach bands produced from the MSA centroid",
+            reach["polygons"] == len(reach["bands"]),
+            "%d of %d bands" % (reach["polygons"], len(reach["bands"])))
 
         od = network.build_od_stores(gdb, run_id=run_id, net=net)
         print("  OD_Cand_to_Stores    %s pairs, %d candidates x %d served stores"

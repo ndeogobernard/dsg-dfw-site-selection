@@ -114,6 +114,20 @@ def osm_where() -> str:
 # Ingest
 # ---------------------------------------------------------------------------
 
+def _fld(feat, name: str) -> str:
+    """Read a field that may not exist on this layer.
+
+    GDAL's osmconf promotes a tag to a column only if it can be a valid column
+    name, and the `addr:*` tags do not always survive that. A missing column
+    raises rather than returning empty, so every optional tag is read through
+    here - an absent address is not a reason to lose the store.
+    """
+    try:
+        return feat.GetFieldAsString(name) or ""
+    except Exception:
+        return ""
+
+
 def scan_extracts(slugs=None, cfg=None, centre=None, radius_miles=None):
     """Find candidate store features across the OSM extracts.
 
@@ -160,9 +174,9 @@ def scan_extracts(slugs=None, cfg=None, centre=None, radius_miles=None):
             lyr = ds.GetLayerByName("s") if ds else None
             if lyr is not None:
                 for feat in lyr:
-                    banner = match_banner(feat.GetFieldAsString("name"),
-                                          feat.GetFieldAsString("brand"),
-                                          feat.GetFieldAsString("operator"))
+                    banner = match_banner(_fld(feat, "name"),
+                                          _fld(feat, "brand"),
+                                          _fld(feat, "operator"))
                     if not banner:
                         continue
                     g = feat.GetGeometryRef()
@@ -172,20 +186,20 @@ def scan_extracts(slugs=None, cfg=None, centre=None, radius_miles=None):
                     lon, lat = c.GetX(), c.GetY()
                     if not within_radius(lon, lat, centre, radius_miles):
                         continue
-                    oid = feat.GetFieldAsString("osm_id") or feat.GetFID()
+                    oid = _fld(feat, "osm_id") or feat.GetFID()
                     sid = store_id(oid, banner)
                     if sid in seen:
                         continue
                     seen.add(sid)
                     found.append({
                         "store_id": sid, "banner": banner,
-                        "name": (feat.GetFieldAsString("name") or banner)[:150],
+                        "name": (_fld(feat, "name") or banner)[:150],
                         "address": " ".join(x for x in (
-                            feat.GetFieldAsString("addr:housenumber"),
-                            feat.GetFieldAsString("addr:street")) if x)[:200],
-                        "city": (feat.GetFieldAsString("addr:city") or "")[:100],
-                        "state": (feat.GetFieldAsString("addr:state") or "")[:2],
-                        "zip": (feat.GetFieldAsString("addr:postcode") or "")[:10],
+                            _fld(feat, "addr:housenumber"),
+                            _fld(feat, "addr:street")) if x)[:200],
+                        "city": _fld(feat, "addr:city")[:100],
+                        "state": _fld(feat, "addr:state")[:2],
+                        "zip": _fld(feat, "addr:postcode")[:10],
                         "lon": lon, "lat": lat,
                         "source": "OpenStreetMap %s/%s" % (slug, layer_name),
                         "osm_layer": layer_name, "state_slug": slug,
