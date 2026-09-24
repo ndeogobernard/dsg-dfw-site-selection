@@ -4,13 +4,23 @@
 # =============================================================================
 
 build:
-  source_priority: [S03, S04]     # TxDOT RHiNo primary, OSM gap-fill/alternate
-  # [DECISION] record which source actually produced the delivered network in
-  # ScoreRuns.parameters_json and in the methodology report, Section 7.
+  source_priority: [S04, S03]     # OSM primary (D-004); RHiNo kept for validation
   nd_name: RoadNetwork_ND
   dataset: Transportation
-  connectivity: END_POINT
-  elevation: NONE                 # RHiNo has no reliable z-level field
+  # ANY_VERTEX, not END_POINT, and this is not a preference - it is what the
+  # source requires. OGR hands back whole OSM ways, not ways split at every
+  # junction, so END_POINT connectivity would join them only where one way
+  # happens to end on another's endpoint and the network would be shredded.
+  #
+  # OSM ways that genuinely meet share an identical node, and ways that merely
+  # cross - an overpass over a freeway - do not. Vertex coincidence therefore
+  # already encodes grade separation, which is why no elevation field is
+  # needed: the geometry carries the information that RHiNo would have needed
+  # a z-level column for. Residual risk is mis-mapped OSM data where a bridge
+  # and the road beneath it wrongly share a node; the route validation below
+  # is what would catch it.
+  connectivity: ANY_VERTEX
+  elevation: NONE
   build_after_create: true
 
 # --- Cost and restriction attributes ---
@@ -29,6 +39,16 @@ attributes:
     usage: Restriction
     field: oneway
     # RHiNo/OSM convention: FT = with digitized direction, TF = against, blank = both
+
+  - name: TruckMinutes
+    usage: Cost
+    units: Minutes
+    field: truck_minutes          # miles / truck_speed_mph * 60
+    # Scope 4.6 says the Truck mode uses "impedance Minutes" AND caps truck
+    # speeds below general traffic. Those cannot both be true of one field, so
+    # the capped travel time is a SECOND cost attribute rather than an
+    # overwrite of the first. Driving and Truck then read different columns and
+    # a labour-shed isochrone is not silently computed at truck speeds. D-019.
 
   - name: TruckRestricted
     usage: Restriction
@@ -68,8 +88,8 @@ travel_modes:
     speed_source: posted_then_default
 
   Truck:
-    impedance: Minutes
-    time_attribute: Minutes
+    impedance: TruckMinutes
+    time_attribute: TruckMinutes
     distance_attribute: Miles
     restrictions: [Oneway, TruckRestricted]
     uturn_policy: NO_UTURNS

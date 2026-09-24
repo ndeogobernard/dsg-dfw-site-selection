@@ -302,6 +302,12 @@ feature_classes:
       - {name: truck_restrict, type: SHORT,  alias: Truck Restricted}
       - {name: lanes,          type: SHORT,  alias: Lanes}
       - {name: minutes,        type: DOUBLE, alias: Travel Time (min)}
+      # Truck travel time is a SEPARATE cost, not an overwrite of `minutes`.
+      # Scope 4.6 wants the Truck mode to use capped speeds while Driving uses
+      # posted ones; one column cannot hold both, and sharing it would compute
+      # the labour-shed isochrones at truck speeds. See D-019.
+      - {name: truck_speed_mph, type: SHORT, alias: Truck Speed (mph)}
+      - {name: truck_minutes,   type: DOUBLE, alias: Truck Travel Time (min)}
       - {name: miles,          type: DOUBLE, alias: Length (mi)}
       - {name: source_id,      type: TEXT,   length: 10,  alias: Source ID}
 

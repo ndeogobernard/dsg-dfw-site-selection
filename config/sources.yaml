@@ -712,3 +712,125 @@ sources:
       Enhancement for optional criterion C12. If unavailable, note in the report
       that C01-C03 are the open-data equivalent of a commercial labor-analytics
       product.
+
+# --- Road network source for RoadNetwork_ND (S04, D-004 decided 2026-09-24) ---
+#
+# OpenStreetMap via Geofabrik, NOT TxDOT RHiNo. RHiNo is Texas-only and its
+# DIR_TRAV (one-way) field is 0% populated statewide, so it cannot serve a
+# routing network that has to reach stores in nine-plus states. RHiNo stays
+# ingested as an independent validation source for the 30.7% of segments where
+# it does carry SPD_MAX. Full reasoning in docs/DECISIONS.md, D-004.
+road_network:
+  source_id: S04
+  acquisition: AUTO
+  target: Roads
+  provider: OpenStreetMap contributors (Geofabrik extracts)
+  dataset: OSM state extracts, north-america/us
+  license: ODbL 1.0
+  license_note: >-
+    Attribution required on every published map and figure. Share-alike
+    attaches to a DERIVED DATABASE, so RoadNetwork_ND and the geodatabase must
+    not be published without licensing them under ODbL. Maps, figures and the
+    methodology report are Produced Works and need attribution only. See D-018.
+  attribution: "(c) OpenStreetMap contributors, ODbL 1.0"
+  base_url: https://download.geofabrik.de/north-america/us/{slug}-latest.osm.pbf
+  native_crs: 4326
+  osmconf: config/osmconf.ini      # promotes oneway/maxspeed/hgv to columns
+
+  # States intersecting a 600-mile geodesic radius of the 11-county MSA
+  # centroid (-96.9704, 32.8495), computed against TIGERweb, not guessed.
+  # Scope 2.2 compiles stores in that radius; the 10-hour truck served set
+  # sits inside it, since 10 h of road distance is less than 600 mi of
+  # straight line. 3.8 GB total, measured.
+  states:
+    - {slug: texas,       mb: 722}
+    - {slug: florida,     mb: 657}
+    - {slug: colorado,    mb: 382}
+    - {slug: illinois,    mb: 360}
+    - {slug: missouri,    mb: 197}
+    - {slug: tennessee,   mb: 190}
+    - {slug: oklahoma,    mb: 169}
+    - {slug: kentucky,    mb: 154}
+    - {slug: alabama,     mb: 150}
+    - {slug: louisiana,   mb: 146}
+    - {slug: new-mexico,  mb: 136}
+    - {slug: iowa,        mb: 134}
+    - {slug: kansas,      mb: 116}
+    - {slug: nebraska,    mb: 101}
+    - {slug: arkansas,    mb: 100}
+    - {slug: mississippi, mb:  94}
+
+  # Two-tier extraction. Loading every residential street in 16 states would be
+  # tens of millions of edges to answer a question about 10-hour truck routes,
+  # and the solve would not finish. The long-haul tier carries the classes a
+  # truck actually uses between cities; the local tier adds the street detail
+  # the 15/30/45-minute labour-shed service areas need, but only over the study
+  # area. This is a modelling assumption and is documented as one: a route that
+  # would genuinely prefer a rural residential lane between two states is not
+  # representable. For 10-hour freight reach that is not a real case.
+  tiers:
+    long_haul:
+      extent: all_states
+      highway_classes:
+        [motorway, trunk, primary, secondary,
+         motorway_link, trunk_link, primary_link, secondary_link]
+    local:
+      extent: study_area          # 11-county MSA + buffer_miles below
+      buffer_miles: 15
+      # Computed from the 11 study counties via TIGERweb on 2026-09-24 and
+      # expanded by buffer_miles, not eyeballed. xmin,ymin,xmax,ymax in 4326.
+      bbox_wgs84: [-98.3253, 31.8347, -95.6002, 33.6514]
+      # The MSA lies wholly inside Texas and its 15-mile buffer does not reach
+      # another state, so the local tier reads the Texas extract only.
+      states: [texas]
+      highway_classes:
+        [motorway, trunk, primary, secondary, tertiary, unclassified,
+         residential, living_street,
+         motorway_link, trunk_link, primary_link, secondary_link, tertiary_link]
+
+  # OSM highway= -> FHWA-style functional class, so network.yaml's existing
+  # default_speeds_mph and truck_restriction_rule keep working unchanged.
+  func_class_map:
+    motorway: 1
+    motorway_link: 1
+    trunk: 2
+    trunk_link: 2
+    primary: 3
+    primary_link: 3
+    secondary: 4
+    secondary_link: 4
+    tertiary: 5
+    tertiary_link: 5
+    unclassified: 6
+    residential: 7
+    living_street: 7
+
+  # OSM oneway= -> the FT/TF/blank convention network.yaml already expects.
+  oneway_map:
+    "yes": FT
+    "true": FT
+    "1": FT
+    "-1": TF
+    "reverse": TF
+    "no": ""
+    "false": ""
+    "0": ""
+
+  # Explicit truck prohibitions, where OSM has them. Where it does not, the
+  # functional-class fallback in network.yaml takes over - that fallback is
+  # doing most of the work either way, on any free source. D-004.
+  # Values are QUOTED deliberately. YAML 1.1 parses a bare `no` as boolean
+  # false, so an unquoted [no, destination] silently becomes [False, ...] and
+  # `hgv=no` - the single most common truck prohibition in OSM - stops matching.
+  # Caught by a smoke test; it would otherwise have let trucks onto every road
+  # explicitly closed to them.
+  truck_restriction_tags:
+    hgv: ["no", "destination", "private"]
+    motor_vehicle: ["no", "private"]
+    access: ["no", "private"]
+
+  # Grade separation. A network built on shared vertices would connect every
+  # road that merely crosses another on the map, inventing an interchange at
+  # every overpass. OSM's layer= resolves it; RHiNo has no equivalent field,
+  # which is a further argument for this source.
+  elevation_field: layer
