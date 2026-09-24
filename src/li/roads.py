@@ -18,14 +18,29 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-import requests
-
 from . import config
 
 log = logging.getLogger(__name__)
 
-_SESSION = requests.Session()
-_SESSION.headers.update({"User-Agent": "dsg-dfw-site-selection/1.0 (portfolio study)"})
+# `requests` is imported lazily, not at module scope. Everything in this module
+# that CI exercises - the tag-to-attribute rules and the network-dataset XML -
+# is pure Python, and the arcpy-free guarantee is worth little if importing the
+# module still needs an HTTP library. The CI runner installs only pytest and
+# pyyaml, and a top-level `import requests` here failed collection of the whole
+# test file.
+_SESSION = None
+
+
+def _session():
+    """The shared HTTP session, created on first use."""
+    global _SESSION
+    if _SESSION is None:
+        import requests
+
+        _SESSION = requests.Session()
+        _SESSION.headers.update(
+            {"User-Agent": "dsg-dfw-site-selection/1.0 (portfolio study)"})
+    return _SESSION
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +223,7 @@ def download_extracts(dest: Path | str | None = None, slugs: Iterable[str] | Non
     for i, slug in enumerate(slugs, 1):
         url = extract_url(slug, cfg)
         path = dest / ("%s-latest.osm.pbf" % slug)
-        head = _SESSION.head(url, allow_redirects=True, timeout=120)
+        head = _session().head(url, allow_redirects=True, timeout=120)
         want = int(head.headers.get("content-length", 0))
 
         if path.exists() and want and path.stat().st_size == want:
@@ -217,7 +232,7 @@ def download_extracts(dest: Path | str | None = None, slugs: Iterable[str] | Non
             continue
 
         t0 = time.time()
-        with _SESSION.get(url, stream=True, timeout=1800) as r:
+        with _session().get(url, stream=True, timeout=1800) as r:
             r.raise_for_status()
             tmp = path.with_suffix(".part")
             got = 0

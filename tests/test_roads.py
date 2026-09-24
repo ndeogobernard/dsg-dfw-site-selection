@@ -395,3 +395,42 @@ def test_tiers_together_cover_the_declared_local_detail(cfg):
     lh = set(cfg["tiers"]["long_haul"]["highway_classes"])
     assert lh | set(roads.local_only_classes(cfg)) == set(
         cfg["tiers"]["local"]["highway_classes"])
+
+
+# --------------------------------------------------------------------------
+# The CI guarantee
+# --------------------------------------------------------------------------
+
+def test_no_http_session_is_created_on_import():
+    """Importing the module must not need `requests`.
+
+    The CI runner installs only pytest and pyyaml. A top-level `import
+    requests` here once failed collection of this entire file, taking 86 tests
+    with it - and the modelling rules those tests guard have nothing to do with
+    HTTP. The session is built on first use instead.
+    """
+    assert roads._SESSION is None, (
+        "an HTTP session was created at import time - the download helpers "
+        "must build it lazily")
+
+
+def test_pure_modules_import_without_optional_dependencies():
+    """li.roads, li.network and li.stores must import with no arcpy, no osgeo
+    and no requests, because that is exactly the CI environment."""
+    import subprocess
+
+    code = (
+        "import sys\n"
+        "class Block:\n"
+        "    def find_module(self, name, path=None):\n"
+        "        return self if name in ('requests','arcpy','osgeo') else None\n"
+        "    def load_module(self, name):\n"
+        "        raise ImportError(name)\n"
+        "sys.meta_path.insert(0, Block())\n"
+        "sys.path.insert(0, %r)\n"
+        "import li.roads, li.network, li.stores, li.screening\n"
+        "print('ok')\n" % str(Path(__file__).resolve().parents[1] / "src")
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr[-600:]
+    assert "ok" in out.stdout
