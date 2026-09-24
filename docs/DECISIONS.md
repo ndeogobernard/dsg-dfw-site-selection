@@ -833,3 +833,133 @@ absence loud.
 **Related.** Same family as the `Slope_pct` 1 x 1 raster caught earlier the same session, and as
 D-016: in all three the analysis would have completed and reported a plausible number. See also
 `docs/tutorial/06-screening-candidate-sites.md`, "How it can go wrong quietly".
+
+---
+
+## D-004 (investigation, 2026-09-24) · Network dataset source — evidence and recommendation
+
+- **Status:** still `OPEN` — awaiting the user's pick. Supplements the D-004 stub above; that
+  entry is left untouched per the append-only rule.
+- **Scope ref:** §4.6, §5.2, §2.2 (600-mile store compilation / 10-hour served set), §14 risk row
+
+**What changed since the stub.** The stub said "neither has been downloaded, so neither has been
+inspected." RHiNo has now been inspected directly — it is the same service the `Interchanges`
+layer was derived from — and the field-level evidence settles most of the question.
+
+### Evidence — TxDOT RHiNo, measured against the live service
+
+`Roadway_Inventory_2023/FeatureServer/0`, **908,702 statewide segments**, 168 fields.
+
+| Attribute needed by §4.6 | Field | Populated |
+|---|---|---|
+| Posted speed | `SPD_MAX` | **30.7%** (279,260) |
+| One-way | `DIR_TRAV` | **0.0%** — the field is entirely empty |
+| Access control | `ACES_CTRL` | 30.7% |
+| Lanes | `NUM_LANES` | 100% |
+| Truck restriction | *none exists* | — |
+
+Functional-class coverage is genuinely good: 62.2% of segments are `F_SYSTEM 7` (local), so
+local-street density for 15-minute labour-shed service areas is not the problem the stub feared.
+
+**There is no truck-restriction attribute.** `SEC_TRK` (7.6%) is the Texas Trunk System *highway
+designation*; `SEC_HAZ` (0.1%) marks hazmat routes; `TRUCK_HY_1..9` and `AADT_TRUCKS` are truck
+*volumes*. None of them is a prohibition. Scope §14 anticipated this as a risk; it is confirmed
+as fact.
+
+**`DIR_TRAV` being 0% populated is the harder finding.** A routing network without one-way
+information will route the wrong way down every divided arterial and every downtown grid street.
+The `Driving` travel mode in §4.6 explicitly requires "oneway respected", and RHiNo as published
+cannot supply it.
+
+### The decisive constraint is geographic, not attributional
+
+Scope §2.2 compiles stores within a **600-mile radius of the MSA centroid** and defines the
+served set as stores within a **10-hour truck drive** — expected to span Texas, Oklahoma,
+Louisiana, Arkansas, New Mexico and possibly Kansas, Missouri, Mississippi, Colorado. §5.2 then
+requires an all-pairs truck OD matrix from candidates to that served set.
+
+**RHiNo is Texas only.** A Texas-only network cannot compute a drive time to a store in Oklahoma
+City or Shreveport at all — not inaccurately, but not at all. RHiNo therefore cannot be the sole
+source for Stage C regardless of how its attributes are handled. This is the point the stub
+missed by framing the choice as an attribute-quality question.
+
+### Evidence — OpenStreetMap via Geofabrik
+
+- **Coverage.** Per-state `.osm.pbf` extracts, or the `us-south` regional extract (3.8 GB, data
+  to 2026-09-17). Texas alone is 666 MB, Oklahoma 152 MB. Assembling the nine states the served
+  set may touch is a download, not a data-availability question.
+- **Currency.** Rebuilt daily. RHiNo is an annual publication (2023 edition currently).
+- **Routing attributes.** `oneway`, `maxspeed`, `highway` (functional class), plus the truck tags
+  `hgv`, `maxheight`, `maxweight`, `maxlength`, and `bridge`/`tunnel`/`layer` for grade
+  separation. `maxspeed` is patchy in rural Texas — but §4.6 already specifies a
+  functional-class speed fallback, and `highway=` is essentially complete, so the fallback has a
+  reliable key to work from. Unlike `DIR_TRAV`, `oneway` is well populated where it matters.
+- **Effort — measured, not assumed.** GDAL **3.10.2** ships inside `arcgispro-py3` with the
+  **OSM driver available**, so `.osm.pbf` can be read with no external tooling. One wrinkle:
+  Pro's stock `osmconf.ini` promotes only `name,highway,waterway,aerialway,barrier,man_made,
+  railway` to columns, so `oneway`/`maxspeed`/`hgv` land in the `other_tags` HSTORE. The fix is
+  to ship our own `config/osmconf.ini` adding them to `attributes=` — a config change, which is
+  what this project's conventions want anyway.
+- **Licensing — ODbL 1.0.** Attribution is required on every published map, and share-alike
+  attaches to a *derived database*. Maps, figures and the methodology report are Produced Works:
+  attribution only. **But publishing `RoadNetwork_ND` or the whole GDB would trigger share-alike.**
+  That is a real constraint on what the portfolio repo can distribute, and it needs a decision of
+  its own if we go this way. RHiNo is public domain with no such obligation.
+
+### Known costs of OSM, stated plainly
+
+1. **Turn restrictions are relations**, which the GDAL OSM driver exposes only under
+   `other_relations`. Building a Pro turn feature class from them is real work.
+   *Mitigation:* defer them and document the limitation. Turn restrictions change a route by
+   seconds at intersections; they do not meaningfully move a 10-hour drive time or a 60/120/240
+   minute freight band. They would matter for last-100-metres routing, which this study does not
+   do.
+2. **Overpass connectivity.** A network built with "any vertex" connectivity will connect roads
+   that merely cross on the map. OSM carries `layer`/`bridge`/`tunnel` to resolve this;
+   **RHiNo carries no equivalent** (only `BRDG_STRUC_NBR`). This is an argument *for* OSM, not
+   against it, but it must be modelled explicitly in Stage B either way.
+3. **Volume.** Nine states of OSM lines is a large build. Filtering to routable `highway=`
+   classes before loading keeps it tractable.
+
+### Options
+
+| | Source | National reach | One-way | Truck restrictions | Licence | Effort |
+|---|---|---|---|---|---|---|
+| **A** | RHiNo only | ❌ Texas only | ❌ 0% populated | ❌ none | Public domain | Low — but cannot do Stage C |
+| **B** | **OSM (Geofabrik), multi-state** | ✅ | ✅ | ⚠️ partial | ODbL — attribution + share-alike on derived DBs | Medium |
+| **C** | Hybrid — RHiNo in Texas, OSM beyond | ✅ | ❌ in Texas | ❌ in Texas | Mixed | High — two schemas, a seam to stitch, hardest to reproduce |
+| **D** | ArcGIS StreetMap Premium | ✅ | ✅ | ✅ genuine height/weight/hazmat | Esri subscription | Lowest — ships as a ready-built ND |
+
+### Recommendation — **Option B, OSM via Geofabrik, with RHiNo retained as a validation source**
+
+Reasoning, in order of weight:
+
+1. **Only B and D can answer the question the scope asks.** The served set is defined by a
+   10-hour truck drive across roughly nine states. Option A cannot produce the OD matrix.
+2. **RHiNo's two headline advantages do not survive inspection.** Posted speed is on 30.7% of
+   segments, and one-way — which §4.6 requires — is on none. The functional-class fallback that
+   §4.6 specifies for speed would be carrying most of the network anyway, and OSM's `highway=`
+   tag drives that fallback at least as well as `F_SYSTEM`.
+3. **Neither free source has real truck restrictions**, so that risk is not a discriminator
+   between A and B. §14's mitigation — functional-class rules plus route validation — applies
+   whichever is chosen, and is the honest thing to document either way.
+4. **The hybrid (C) buys nothing here.** It would be worth the seam if RHiNo were stronger inside
+   Texas, but with no one-way and 30.7% speeds it is not the better source even on its home turf.
+
+**Keep RHiNo anyway, for validation.** It is already ingested, it is public domain, and it is an
+independent measurement of the same roads. Comparing OSM-derived speeds and classes against
+`SPD_MAX` on the 30.7% where RHiNo has them is a genuine cross-check, and §14's "validate 20
+sample routes" gets a second reference point beyond AGOL.
+
+**If Option D is available, take it instead.** StreetMap Premium is what production
+site-selection work uses: real truck restrictions, national coverage, a ready-built ND, and no
+ODbL obligation on what the portfolio publishes. It removes items 1–3 of the known costs
+entirely. Whether it is included in the user's licence is not something this session can
+determine, so it is presented as an option rather than folded into the recommendation.
+
+### What closes this
+
+The user picks. On a pick this entry gets a superseding `DECIDED` entry naming the choice, and
+`config/network.yaml → source_priority` is rewritten to match. If B is chosen, a companion
+decision is needed on **ODbL share-alike and what the portfolio repo may distribute** — likely
+"publish maps and figures, do not publish the network dataset."
