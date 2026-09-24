@@ -34,6 +34,8 @@ def main() -> int:
     ap.add_argument("--validate", action="store_true")
     ap.add_argument("--stores", action="store_true")
     ap.add_argument("--stage-c", action="store_true")
+    ap.add_argument("--od-only", action="store_true",
+                    help="rebuild only the OD matrix, reusing the service areas")
     ap.add_argument("--all", action="store_true")
     args = ap.parse_args()
     if args.all:
@@ -86,6 +88,39 @@ def main() -> int:
             s["loaded"] >= 100, "%d found (OSM coverage is a floor)" % s["loaded"],
             warn=True)
 
+    if args.od_only:
+        print("\n" + "=" * 94)
+        print("OD MATRIX ONLY")
+        print("=" * 94)
+        od = network.build_od_stores(gdb, run_id=run_id, net=net)
+        print("  OD_Cand_to_Stores    %s pairs, %d candidates x %d served stores"
+              % (format(od["pairs"], ","), od["candidates"], od["served_stores"]))
+        _qa(checks, "OD-COVER", "OD_Cand_to_Stores",
+            "Every candidate reaches at least one store",
+            not od["unreachable"], "%d unreachable" % len(od["unreachable"]))
+        per = od["reached_per_cand"]
+        vals = sorted(per.values())
+        print("  stores reached per candidate: min %d  median %d  max %d"
+              % (vals[0], vals[len(vals) // 2], vals[-1]))
+        _qa(checks, "OD-DEST", "OD_Cand_to_Stores",
+            "No candidate reaches more stores than are served",
+            vals[-1] <= od["served_stores"],
+            "max %d vs %d served" % (vals[-1], od["served_stores"]))
+        with arcpy.da.SearchCursor(gdb + "\\OD_Cand_to_Stores",
+                                   ["truck_minutes", "truck_miles"]) as c:
+            rows = [(m, mi) for m, mi in c if m is not None]
+        mins = sorted(r[0] for r in rows)
+        implausible = [r for r in rows if r[1] > 0 and (r[1] / (r[0] / 60.0)) > 80]
+        print("  truck minutes: min %.0f  median %.0f  max %.0f"
+              % (mins[0], mins[len(mins) // 2], mins[-1]))
+        _qa(checks, "OD-SPEED", "OD_Cand_to_Stores",
+            "No pair implies an average speed above 80 mph", not implausible,
+            "%d implausible of %s" % (len(implausible), format(len(rows), ",")))
+        _qa(checks, "OD-CUTOFF", "OD_Cand_to_Stores",
+            "No pair exceeds the 10-hour cutoff",
+            mins[-1] <= float(net["od_matrices"]["stores"]["cutoff_min"]),
+            "max %.0f min" % mins[-1])
+
     if args.stage_c:
         print("\n" + "=" * 94)
         print("STAGE C - SERVED SET, SERVICE AREAS, OD MATRIX")
@@ -114,6 +149,13 @@ def main() -> int:
             sa["polygons"] == sa["facilities"] * len(sa["breaks"]),
             "%d vs %d expected"
             % (sa["polygons"], sa["facilities"] * len(sa["breaks"])))
+        _qa(checks, "SA-REACH-FULL", "ServiceAreas_Driving",
+            "Every candidate reaches the largest break",
+            not sa["marooned"],
+            "%d marooned: %s" % (len(sa["marooned"]),
+                                 ", ".join("%s@%.2fmin" % m
+                                           for m in sa["marooned"][:5])),
+            warn=True)
 
         reach = network.build_served_reach(gdb, run_id=run_id, net=net)
         print("  ServiceAreas_Truck   %5d reach polygons from the MSA centroid"

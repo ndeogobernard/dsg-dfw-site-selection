@@ -282,13 +282,35 @@ def build_service_areas(gdb=None, run_id="", mode="Driving", net=None):
         log.info("  batch %2d: %d facilities, %d polygons so far, %.0fs",
                  bi, len(group), written, time.time() - t0)
 
+    # A candidate whose largest polygon falls short of the largest break is
+    # marooned on a disconnected piece of network - it did not fail, it just
+    # ran out of road. TAR-00758 snapped to "Perimeter Road", an isolated
+    # 2.44-mile private stub that intersects nothing, so its reach capped at
+    # 2.44 minutes instead of 45. The solve reports success either way, and any
+    # workforce figure computed from that polygon would be meaningless.
+    marooned = []
+    import collections as _c
+    biggest = _c.defaultdict(float)
+    with arcpy.da.SearchCursor(dest, ["cand_id", "break_min"],
+                               "run_id = '%s'" % run_id) as c:
+        for cid, b in c:
+            biggest[cid] = max(biggest[cid], float(b or 0))
+    for cid, _pt in cands:
+        if biggest.get(cid, 0.0) < max(breaks) - 0.001:
+            marooned.append((cid, round(biggest.get(cid, 0.0), 2)))
+    if marooned:
+        log.warning("  %d candidate(s) could not reach the largest break (%s min): %s",
+                    len(marooned), max(breaks),
+                    ", ".join("%s capped at %.2f" % m for m in marooned[:10]))
+
     log.info("  ServiceAreas_%s: %d polygons for %d candidates in %.0fs",
              mode, written, len(cands) - len(failed), time.time() - t0)
     if failed:
         log.warning("  %d candidates produced no service area: %s",
                     len(failed), ", ".join(failed[:10]))
     return {"target": "ServiceAreas_%s" % mode, "polygons": written,
-            "facilities": len(cands), "failed": failed, "breaks": breaks}
+            "facilities": len(cands), "failed": failed, "breaks": breaks,
+            "marooned": marooned}
 
 
 # ---------------------------------------------------------------------------
@@ -345,10 +367,23 @@ def build_od_stores(gdb=None, run_id="", net=None):
     f_time = total_field(p["time_attribute"])
     f_dist = total_field(p["distance_attribute"])
 
-    # Destinations are the same for every batch, so they are loaded once.
-    arcpy.na.AddLocations(lyr, sub["Destinations"],
-                          gdb + "\\Market\\Stores_DSG", "Name store_id #",
-                          "5000 Meters", append="CLEAR")
+    # Destinations are the same for every batch, so they are loaded once - but
+    # they must be the SERVED set, not every store. Passing the whole feature
+    # class here put 7 unserved stores into the matrix and let a candidate
+    # "reach" 145 of 143 stores, which is what exposed it. Scope §5.2 says
+    # candidates -> Stores_DSG (served set).
+    served_lyr = "od_served_stores"
+    if arcpy.Exists(served_lyr):
+        arcpy.management.Delete(served_lyr)
+    arcpy.management.MakeFeatureLayer(gdb + "\\Market\\Stores_DSG",
+                                      served_lyr, "served_flag = 1")
+    n_dest = int(arcpy.management.GetCount(served_lyr)[0])
+    if n_dest != len(stores):
+        raise RuntimeError("served-store layer has %d rows but store_points "
+                           "returned %d" % (n_dest, len(stores)))
+    arcpy.na.AddLocations(lyr, sub["Destinations"], served_lyr,
+                          "Name store_id #", "5000 Meters", append="CLEAR")
+    arcpy.management.Delete(served_lyr)
 
     for bi, group in enumerate(_chunks(cands, batch), 1):
         orig = arcpy.management.CreateFeatureclass(

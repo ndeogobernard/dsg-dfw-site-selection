@@ -403,3 +403,100 @@ full of parcels nobody had screened, and they were indistinguishable from real c
    thresholds before Part 2.
 2. Part 2: network dataset, service areas, OD cost matrix.
 3. D-016 remains open pending a sewer-CCN source; D-014 (Dallas roll join) still blocks Dallas.
+
+---
+
+## 2026-09-24 — Session 6 · Vertical slice Part 2: routing network, service areas, OD matrix
+
+**Goal.** Resolve D-004, build and validate the network dataset, produce service areas and the
+candidate-to-store OD matrix. Stop before scoring.
+
+### Stage A — the road-source decision
+
+RHiNo was measured against the live service rather than described: **908,702 statewide segments,
+`SPD_MAX` populated on 30.7%, `DIR_TRAV` on 0.0%**, and no truck-restriction attribute at all
+(`SEC_TRK` is the Texas Trunk System designation, `TRUCK_HY_*` are volumes). Local-street
+coverage was fine at 62.2% `F_SYSTEM 7`, so the stub's worry about arterial bias was wrong.
+
+The decision turned on extent, not attributes. Scope §2.2 defines the served set as stores within
+a 10-hour truck drive of the MSA centroid; the 600-mile radius that bounds the store compilation
+intersects **sixteen states** (computed via TIGERweb, not guessed — the scope had estimated nine).
+RHiNo is Texas only, so it cannot compute a drive time to an Oklahoma City store at all.
+
+Recommended OSM via Geofabrik; **the user chose it**. D-004 closed as DECIDED.
+
+### Stage B — the network
+
+3.8 GB of extracts, two-tier extraction (long-haul classes across all sixteen states, full street
+detail only over the MSA), **1,399,985 segments** loaded, `RoadNetwork_ND` built in 124 s.
+
+**Validated on 7 reference routes in both modes, 7/7 each.** Distances within 2% on every route
+including Dallas–Albuquerque at 649.7 mi against 647. Times 4–15% fast, which is the right
+direction for a free-flow network. Truck slower than Driving everywhere. The four out-of-state
+routes solving is what D-004 was about.
+
+### Stage C — store set, service areas, OD
+
+**179 stores** matched from the OSM extracts already downloaded (161 DSG, 10 Golf Galaxy, 5 House
+of Sport, 3 Public Lands), above the scope's "100+". **143 served** within 600 truck-minutes.
+**412 driving isochrones**, **4 freight-reach bands**, **19,152 OD pairs**.
+
+### What was decided
+
+- **D-004 (resolved)** — OSM via Geofabrik, sixteen states. RHiNo kept as a validation source.
+- **D-018** — ODbL. Attribution on every published map; `Roads`, `RoadNetwork_ND` and the
+  geodatabase are **not** published, because share-alike attaches to a derived database and would
+  reach parcel and CAD data this project has no standing to relicense.
+- **D-019** — truck travel time is a **second** cost attribute. §4.6 asks the Truck mode to use
+  "impedance `Minutes`" *and* capped speeds; one column cannot do both, and sharing it would have
+  computed the labour-shed isochrones at truck speeds.
+- **D-020** — `ServiceAreas_Truck` is built from the **MSA centroid**, not from 138 candidates.
+  Nothing in `criteria.yaml` consumes it, and the Driving equivalent measured 31 minutes per
+  batch of 50.
+
+### Five bugs, all found by checking rather than by reading
+
+1. **`hgv: [no, ...]` in YAML parses as `[False, ...]`** — the commonest truck prohibition in OSM
+   silently stopped matching. Found by a smoke test asserting `hgv=no` restricts.
+2. **Committing a transaction mid-iteration invalidates the SQLite read cursor**, restarting the
+   attribute pass every 250k rows. Texas ran half an hour without finishing instead of six
+   minutes. Invisible below 250k rows, which is why it reached a 326k-row file.
+3. **The two extraction tiers overlapped**, putting **121,147** OSM ways into the network twice as
+   parallel edges. Routing still worked. Found by comparing `road_id` sets between tiers.
+4. **The OD matrix loaded all 179 stores as destinations instead of the 143 served.** Exposed by
+   a QA line reading "max 145" against 143 served — a number that cannot exist.
+5. **`Intersect` with POINT output emits MULTIPOINT**, failing as a bare `AttributeError:
+   __len__` from inside `insertRow`.
+
+### One finding that is not a bug
+
+**`TAR-00758` is marooned.** Its label point snaps to *Perimeter Road*, an isolated 2.44-mile
+private, truck-restricted OSM stub that intersects **nothing**. The facility sits 41.6% along it,
+so its driving service area caps at exactly 2.44 minutes instead of 45 — the solver reported
+success. It still has 142 OD rows because the OD solver snapped it to a different edge. Caught
+because 412 polygons is not 138 × 3. `SA-REACH-FULL` now warns whenever a candidate's largest
+polygon falls short of the largest break; any workforce figure computed from that polygon would
+have been meaningless and would have looked fine.
+
+### Also worth knowing
+
+**Travel modes could not be put on the network dataset.** arcpy exposes no tool to add one, and
+the `TravelModes` property key in the exported template XML is ignored on import — the created
+network still reported none. Since `arcpy.nax` refuses to open a network without travel modes,
+the solvers use the classic `arcpy.na.Make*Layer` tools, which take impedance, restrictions and
+U-turn policy as explicit arguments read from `network.yaml`. Arguably more legible; the cost is
+an empty travel-mode dropdown for anyone starting a Network Analyst layer by hand in Pro.
+
+**Not a bug, recorded because it looks like one:** 77% of Texas `secondary` is tagged
+`oneway=yes`. Confirmed against the raw extract — those are Texas's one-way frontage roads.
+
+### Run identity
+
+Service areas and the served set carry `20260924_0403_network`; the OD matrix was rebuilt after
+the destinations fix and carries `20260924_0555_network`. Both are in `QAQC_Log`.
+
+### What's next
+
+1. **STOP** — the user reviews Part 2 and decides on `TAR-00758`.
+2. Part 3: criteria, three weighting scenarios, sensitivity, shortlist.
+3. The Census API key now blocks C01–C03 directly, since the service areas they need exist.
